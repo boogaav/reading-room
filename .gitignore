@@ -1,0 +1,6 @@
+node_modules/
+# Upstream response cache — ~3 MB of Parsoid HTML + Wikidata claims per book.
+# Regenerated on demand; never committed.
+.cache/
+*.log
+.DS_Store

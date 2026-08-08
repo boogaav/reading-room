@@ -1,0 +1,5 @@
+# Every /read/ path that isn't pre-built triggers live Wikimedia API calls.
+# Crawlers must not walk the article space and turn this into a scraper.
+User-agent: *
+Disallow: /read/
+Disallow: /api/

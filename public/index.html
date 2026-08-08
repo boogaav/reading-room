@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reading Room</title>
+<link rel="stylesheet" href="/reader.css">
+<link rel="preconnect" href="https://upload.wikimedia.org">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="window.__noLeaflet=1">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window.__noLeaflet=1"></script>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+</head>
+<body>
+  <div class="progress"><div class="progress-fill" id="progress"></div></div>
+
+  <aside class="rail" id="rail" aria-label="Table of contents">
+    <div class="rail-head">
+      <a class="rail-home" href="/">Reading&nbsp;Room</a>
+      <button class="rail-toggle" id="railToggle" aria-label="Toggle contents">☰</button>
+    </div>
+    <nav class="toc" id="toc"></nav>
+    <div class="rail-foot" id="railFoot"></div>
+  </aside>
+
+  <main id="book" class="book">
+    <div class="loading" id="loading">
+      <div class="loading-mark">📖</div>
+      <p id="loadingText">Binding the volume…</p>
+      <p class="loading-sub">Fetching Parsoid HTML, resolving Wikidata entities, laying out plates.</p>
+    </div>
+  </main>
+
+  <div class="hovercard" id="hovercard" hidden></div>
+  <div class="notecard" id="notecard" hidden></div>
+  <script type="module" src="/reader.js"></script>
+</body>
+</html>
