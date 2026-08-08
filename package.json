@@ -1,16 +1,16 @@
 {
-  "name": "wikibook",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "reading-room",
+  "version": "0.1.0",
+  "description": "Turn any Wikipedia article into an interactive book. Zero LLM — deterministic transforms of Parsoid HTML and Wikidata claims.",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "build": "node scripts/build.mjs"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "cheerio": "^1.2.0"
-  }
+  },
+  "private": true
 }
