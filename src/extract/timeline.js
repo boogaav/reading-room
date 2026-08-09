@@ -15,11 +15,27 @@ const RE_DMY = new RegExp(`\\b(\\d{1,2})\\s+(${M})\\s+(\\d{3,4})\\b`, 'gi');
 const RE_MDY = new RegExp(`\\b(${M})\\s+(\\d{1,2}),\\s*(\\d{3,4})\\b`, 'gi');
 const RE_MY = new RegExp(`\\b(${M})\\s+(\\d{3,4})\\b`, 'gi');
 
+// Bare years, opt-in. A battle is narrated in days and a life in months, so for
+// those this pattern is all noise; a national history is narrated in years
+// ("Japan was unified in 1590"), and without it the rail is nearly empty. Only
+// AD 1000–2099 and explicit BC/BCE, so quantities and page numbers cannot pass.
+// The `(?!,\d)` guards reject the leading group of a comma-grouped number:
+// without it "around 900,000 reservists" reads as the year 900, and lands a
+// sentence about the modern army at the far left of a millennial axis.
+const RE_YEAR = /\b(1\d{3}|20\d{2})\b(?!,\d)(?!\s*(?:km|kg|m\b|ft|mi\b|%))/g;
+// The lookbehind matters too: without it "14,500 BC" yields the year 500.
+const RE_BC = /(?<![\d,])(\d{1,4})\s*(?:BCE?|B\.C\.)\b/g;
+// A three-digit number is far more often a quantity than a year, so it counts
+// only behind an explicit temporal cue. This is what reaches Japan's Nara and
+// Heian periods, which sit entirely below the year 1000.
+const RE_YEAR3 = /\b(?:in|by|since|until|from|around|circa|c\.|AD|during)\s+(\d{3})\b(?!,\d)/gi;
+
 /**
  * @param {object} source  SourceModel
  * @param {{from:number,to:number}|null} window inclusive year window
+ * @param {{max?:number, bareYears?:boolean}} opts
  */
-export function extractChronology(source, window, { max = 80 } = {}) {
+export function extractChronology(source, window, { max = 80, bareYears = false } = {}) {
   const found = new Map(); // key -> event
 
   const chunks = [{ id: 'lead', title: 'Opening', text: source.lead.text },
@@ -30,17 +46,22 @@ export function extractChronology(source, window, { max = 80 } = {}) {
     if (!text) continue;
     const hits = [];
 
-    for (const [re, order] of [[RE_DMY, 'dmy'], [RE_MDY, 'mdy'], [RE_MY, 'my']]) {
+    const patterns = [[RE_DMY, 'dmy'], [RE_MDY, 'mdy'], [RE_MY, 'my']];
+    if (bareYears) patterns.push([RE_BC, 'bc'], [RE_YEAR, 'y'], [RE_YEAR3, 'y']);
+
+    for (const [re, order] of patterns) {
       re.lastIndex = 0;
       let m;
       while ((m = re.exec(text))) {
         let y, mo, d;
         if (order === 'dmy') { d = +m[1]; mo = MONTH_IDX.get(m[2].toLowerCase()); y = +m[3]; }
         else if (order === 'mdy') { mo = MONTH_IDX.get(m[1].toLowerCase()); d = +m[2]; y = +m[3]; }
-        else { mo = MONTH_IDX.get(m[1].toLowerCase()); d = null; y = +m[2]; }
+        else if (order === 'my') { mo = MONTH_IDX.get(m[1].toLowerCase()); d = null; y = +m[2]; }
+        else if (order === 'bc') { mo = null; d = null; y = -Math.abs(+m[1]); }
+        else { mo = null; d = null; y = +m[1]; }
         if (!y || y > 2200) continue;
         if (d && d > 31) continue;
-        hits.push({ y, mo, d, index: m.index, len: m[0].length, raw: m[0], precise: order !== 'my' });
+        hits.push({ y, mo, d, index: m.index, len: m[0].length, raw: m[0], precise: order === 'dmy' || order === 'mdy' });
       }
     }
 
@@ -67,12 +88,34 @@ export function extractChronology(source, window, { max = 80 } = {}) {
 
   const events = [...found.values()].sort((a, b) => a.sort - b.sort);
   if (events.length <= max) return events;
+  return thin(events, max);
+}
 
-  // Too many: keep precise dates first, then thin evenly so the axis stays legible.
-  const precise = events.filter((e) => e.precise);
-  const pool = precise.length >= max ? precise : events;
-  const step = pool.length / max;
-  return Array.from({ length: max }, (_, i) => pool[Math.floor(i * step)]).filter(Boolean);
+/**
+ * Thinning has to drop events, and *which* ones it drops is a real editorial
+ * act if you let it be one. Taking every n-th event by position is not neutral,
+ * it is arbitrary: on Ukraine it kept "contributions to UN peacekeeping
+ * operations since 1992" and dropped the signing of the Budapest Memorandum.
+ *
+ * So: cut the run into equal neighbourhoods to keep the axis evenly covered,
+ * and inside each one keep the richest *mention* — a date the source pinned to
+ * a day over a bare year, then the sentence that carries more of its own
+ * context. Both signals are structural. Neither is a claim about which events
+ * mattered; that judgement is not ours to make.
+ */
+function thin(events, max) {
+  const width = events.length / max;
+  const out = [];
+  for (let i = 0; i < max; i++) {
+    const slice = events.slice(Math.floor(i * width), Math.min(events.length, Math.floor((i + 1) * width)));
+    if (!slice.length) continue;
+    out.push(slice.reduce((best, e) => (weight(e) > weight(best) ? e : best)));
+  }
+  return out;
+}
+
+function weight(e) {
+  return (e.precise ? 1e6 : 0) + Math.min(e.sentence.length, 400);
 }
 
 /**

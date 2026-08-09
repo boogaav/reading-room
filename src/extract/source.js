@@ -193,7 +193,8 @@ function extractInfobox($) {
 
   const linkTitles = [];
   const rows = [];
-  walkInfoboxTable($, $box, rows, linkTitles, 0);
+  const headings = [];
+  walkInfoboxTable($, $box, rows, linkTitles, 0, headings);
 
   // Infoboxes put the canonical image first, so document order beats resolution.
   // Flag icons are filtered out by displayed width, not by file width — flags
@@ -203,6 +204,7 @@ function extractInfobox($) {
 
   return {
     rows,
+    headings,
     image: plate?.src || null,
     images: usable,
     caption: cleanText($, $box.find('caption').first()),
@@ -215,8 +217,8 @@ function extractInfobox($) {
  * from the next row of the same table. Nested tables (which is where military
  * infoboxes hide Date/Location/Result) are recursed into, in document order.
  */
-function walkInfoboxTable($, $table, rows, linkTitles, depth) {
-  if (depth > 3) return;
+function walkInfoboxTable($, $table, rows, linkTitles, depth, headings = []) {
+  if (depth > 4) return;
   const trs = $table.find('> tbody > tr, > tr').toArray();
 
   for (let i = 0; i < trs.length; i++) {
@@ -227,11 +229,12 @@ function walkInfoboxTable($, $table, rows, linkTitles, depth) {
     // A row that only wraps a nested table is scaffolding — descend.
     const nested = $r.find('table').toArray();
     if (nested.length && !cleanText($, $th)) {
-      for (const t of nested) walkInfoboxTable($, $(t), rows, linkTitles, depth + 1);
+      for (const t of nested) walkInfoboxTable($, $(t), rows, linkTitles, depth + 1, headings);
       continue;
     }
 
-    const label = cleanText($, $th);
+    // "Capital<br>and largest city" flattens to "Capitaland largest city".
+    const label = cleanText($, brSpaced($, $th));
     if (!label) {
       // Trailing unlabelled cell (e.g. "Total dead: …") annotates the row above.
       const solo = $tds.length === 1 ? cleanText($, $tds.first()) : '';
@@ -245,7 +248,14 @@ function walkInfoboxTable($, $table, rows, linkTitles, depth) {
       const $next = $(trs[i + 1]);
       if (!$next.children('th').length) { valueCells = $next.children('td').toArray(); i++; }
     }
-    if (!valueCells.length) continue;
+    // A labelled row with nothing to its right is a section heading, not a fact.
+    // Country infoboxes lean on these ("Area", then "• Total", "• Water (%)"),
+    // so the sub-rows below are unreadable without them. Kept in a separate
+    // list: `rows` is what every existing archetype reads, and must not move.
+    if (!valueCells.length) {
+      if (label && label.length < 60) headings.push({ label, atRow: rows.length });
+      continue;
+    }
 
     const values = valueCells.map((td) => {
       const $td = $(td);
@@ -272,6 +282,20 @@ function tidy(s) {
     .replace(/\(\s*\)/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+/**
+ * Clone with line breaks turned into whitespace, so flattening a label does not
+ * fuse words across them. Japan's is literally
+ * `<th>Capital<div>and largest city</div></th>`, which reads out as
+ * "Capitaland largest city".
+ */
+function brSpaced($, $node) {
+  if (!$node || !$node.length) return $node;
+  const $c = $node.clone();
+  $c.find('br').replaceWith(' ');
+  $c.find('div, p, li').each((_, el) => { $(el).before(' '); });
+  return $c;
 }
 
 /** Break a cell into visual lines so "270,000 personnel / 500 tanks" survives. */

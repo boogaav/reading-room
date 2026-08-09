@@ -25,6 +25,7 @@ export function buildBlocks(archetype, ctx) {
 const PACKS = {
   battle: battlePack,
   person: personPack,
+  country: countryPack,
   place: placePack,
   generic: genericPack,
 };
@@ -181,6 +182,250 @@ function placePack(ctx) {
   ];
 }
 
+// ---- country -------------------------------------------------------------
+
+/**
+ * A nation is a sequence of states, so this pack reads as one: what it calls
+ * itself, where it came from and what came after, how many of it there were,
+ * who governed, and what it borders. Everything below `ctx.country` comes from
+ * Wikidata statement *qualifiers* (see extract/country.js); everything else is
+ * the article's own infobox and prose.
+ */
+function countryPack(ctx) {
+  const { source, chronology, subject, window, country } = ctx;
+  const row = rowFinder(source.infobox);
+  const c = country || {};
+  const pop = c.series?.population;
+
+  // P571 is plural on a country and its *preferred* value is usually the newest
+  // — which is why Japan's cover used to read "Founded 1947", the date of a
+  // constitution rather than of a country. Take the earliest instead, and name
+  // what it is a date of.
+  const origin = c.foundings?.[0] || null;
+  const foundedValue = origin
+    ? `${fmtYear(origin.year)}${origin.of ? ` · ${origin.of}` : ''}`
+    : null;
+
+  const headline = pop?.last || null;
+  const population = subject?.population ?? headline?.value ?? null;
+
+  const art = countryCoverArt(source);
+
+  return [
+    {
+      ...coverBlock(ctx, [
+        c.identity?.capital ? { label: 'Capital', value: c.identity.capital.label } : factOf(row('capital'), 'Capital'),
+        population ? { label: 'Population', value: fmtNum(Math.round(population)) } : null,
+        foundedValue ? { label: 'Founded', value: foundedValue } : null,
+        factOf(row('official language', 'national language', 'languages'), 'Language')
+          || labelValue('Language', c.identity?.rows.find((r) => r.label === 'Official language')?.value),
+        c.dissolution ? { label: 'Dissolved', value: fmtYear(c.dissolution.year) } : null,
+      ]),
+      // The infobox plate on a country article is the flag, which makes a poor
+      // cover and a fine emblem. Take a photograph from the article instead.
+      image: art.image,
+      plates: art.plates,
+    },
+
+    (c.identity?.emblems.length || c.identity?.rows.length) && {
+      type: 'identity',
+      title: 'Insignia',
+      emblems: c.identity.emblems,
+      rows: c.identity.rows,
+      capital: c.identity.capital,
+      formerCapitals: c.identity.formerCapitals.slice(0, 12),
+      foundings: (c.foundings || []).length > 1 ? c.foundings : [],
+    },
+
+    c.lineage && {
+      type: 'lineage',
+      title: 'The Chain of States',
+      caption: 'Predecessor and successor states, walked in both directions from Wikidata\'s own succession claims. '
+        + 'Columns are steps of succession, not distance in time — each state carries its own span. Every one is a book.',
+      subjectQid: c.qid,
+      nodes: c.lineage.nodes,
+      edges: c.lineage.edges,
+      levels: c.lineage.levels,
+      truncated: c.lineage.truncated,
+    },
+
+    seriesBlock(c.series),
+
+    c.rulers && {
+      type: 'rulers',
+      title: 'Who Governed',
+      caption: 'Tenures as recorded in Wikidata, on one axis. Terms without a start date cannot be placed and are listed separately.',
+      tracks: c.rulers.tracks,
+      from: c.rulers.from,
+      to: c.rulers.to,
+    },
+
+    territoryBlock(ctx, c.territory),
+
+    { type: 'facts', title: 'The Record', rows: countryFacts(source.infobox, 26) },
+    chronology.length >= 4 && { type: 'chronology', title: 'Chronology', events: chronology, window },
+    { type: 'chapters' },
+    shelfBlock(ctx),
+    notesBlock(ctx),
+  ];
+}
+
+const SERIES_SPEC = [
+  ['population', 'Population', 'int'],
+  ['hdi', 'Human Development Index', 'decimal'],
+  ['gdp', 'GDP (nominal)', 'usd'],
+];
+
+function seriesBlock(series) {
+  if (!series) return null;
+  const available = SERIES_SPEC
+    .map(([key, label, format]) => {
+      const s = series[key];
+      return s && { key, label, format, ...s };
+    })
+    .filter(Boolean);
+  if (!available.length) return null;
+  return {
+    type: 'series',
+    title: 'By the Numbers',
+    caption: 'Dated Wikidata statements, plotted. Only one measurement basis is charted at a time — mixing bases would draw a line that exists in no source.',
+    series: available,
+  };
+}
+
+/**
+ * The subject, its neighbours and its subdivisions on one map, as two layers.
+ * Reuses the `map` renderer wholesale; `layers` is the only addition, and no
+ * other archetype sets it.
+ */
+function territoryBlock(ctx, territory) {
+  if (!territory) return null;
+  const focus = ctx.subject?.coord || null;
+  const points = [
+    ...territory.neighbours.map((p) => ({ ...p, layer: 'neighbours' })),
+    ...territory.subdivisions.slice(0, 60).map((p) => ({ ...p, layer: 'subdivisions' })),
+  ];
+  if (focus) {
+    points.unshift({
+      title: ctx.source.title, label: ctx.source.title,
+      lat: focus.lat, lon: focus.lon, primary: true, layer: 'subject',
+      description: 'The subject of this book',
+    });
+  }
+  if (points.length < 2) return null;
+
+  const layers = [
+    { key: 'subject', label: ctx.source.title, on: true, n: focus ? 1 : 0 },
+    { key: 'neighbours', label: 'Borders', on: true, n: territory.neighbours.length },
+    { key: 'subdivisions', label: territory.subdivisionLabel, on: false, n: Math.min(territory.subdivisions.length, 60) },
+  ].filter((l) => l.n);
+
+  return {
+    type: 'map',
+    title: 'The Territory',
+    caption: 'Neighbours from Wikidata P47, subdivisions from P150, each placed by its own P625 coordinate.'
+      + missingNote(territory),
+    points, layers, focus, zoom: 5,
+  };
+}
+
+function missingNote(t) {
+  const miss = (t.neighboursMissing || 0) + (t.subdivisionsMissing || 0);
+  return miss ? ` ${miss} more are claimed but carry no coordinate, so they cannot be placed.` : '';
+}
+
+/**
+ * Country infoboxes nest: an "Area" heading owns the "• Total" beneath it, and
+ * three different rows are called "• Total". Re-attach each sub-row to the
+ * heading it sat under, so the column reads without the original layout.
+ */
+function countryFacts(infobox, limit) {
+  const headings = infobox.headings || [];
+  const out = [];
+  let lastTop = null; // most recent unbulleted row — "GDP (PPP)" owns "• Total"
+
+  for (let i = 0; i < infobox.rows.length; i++) {
+    const r = infobox.rows[i];
+    const value = r.values.map((v) => (v.lines.length ? v.lines.join(' · ') : v.text)).filter(Boolean).join(' — ');
+    const bulleted = /^[•·▪]/.test(r.label);
+    if (!bulleted) lastTop = { label: r.label, at: i };
+    if (!value || value.length >= 500) continue;
+
+    let label = r.label;
+    if (bulleted) {
+      // A sub-row belongs to whichever came last: a valueless heading row
+      // ("Area") or a labelled row that heads its own group ("GDP (PPP)").
+      const heading = headings.filter((h) => h.atRow <= i).pop();
+      const owner = !heading ? lastTop
+        : !lastTop ? { label: heading.label, at: heading.atRow }
+          : (heading.atRow >= lastTop.at ? { label: heading.label, at: heading.atRow } : lastTop);
+      label = `${owner ? `${owner.label} — ` : ''}${label.replace(/^[•·▪]\s*/, '')}`;
+    }
+    out.push({ label, value });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+// Flags, arms, locator maps and topographic plates are diagrams; a cover wants
+// a photograph. Matched on the Commons filename, which is stable.
+const NOT_COVER_ART = /flag|coat[_ ]of[_ ]arms|emblem|seal|logo|locator|orthographic|projection|topo|[_-]map|map[_-]|chart|graph|diagram|density|per[_ ]capita|\.svg(\.png)?$|\.gif$/i;
+// The filename is only half the signal, and it is the half that is often not in
+// English — Romania's cover was `Salariu_net_județele_României_2024.jpg`, a
+// salary choropleth that no English keyword could catch. The caption is written
+// for readers, so it says what the picture is.
+const NOT_COVER_CAPTION = /\bmaps?\b|\bcharts?\b|\bgraphs?\b|\bdiagrams?\b|territorial (extent|changes|losses)|\bmigrations?\b|depicting|distribution of|\bdensity\b|salary|income|\bGDP\b|per capita|percentage|share of|\bby (county|counties|region|province|district|oblast|prefecture)\b/i;
+// Commons convention does most of the work: photographs are JPEG, while maps,
+// charts and diagrams are PNG, SVG or GIF. Without this the Soviet Union's
+// cover is a GDP-per-capita plot and France's is a population-density map.
+const PHOTOGRAPH = /\.jpe?g$/i;
+
+/**
+ * The cover wants a photograph of the place. Preference runs: a landscape
+ * photograph, then any photograph (the cover crops with object-fit, so a
+ * portrait still fills — Yugoslavia has no landscape photo at all), then
+ * whatever is left. Widest wins inside each tier, document order breaks ties,
+ * so the pick is stable across rebuilds.
+ */
+function countryCoverArt(source) {
+  const named = (f) => decodeURIComponent(String(f.src).split('/').pop() || '');
+  const usable = source.figures.filter((f) => (f.width || 0) > 0 && (f.height || 0) > 0
+    && !NOT_COVER_ART.test(named(f)) && !NOT_COVER_CAPTION.test(f.caption || ''));
+  const widest = (list) => list.slice().sort((a, b) =>
+    (b.width - a.width) || (source.figures.indexOf(a) - source.figures.indexOf(b)));
+
+  const photos = usable.filter((f) => PHOTOGRAPH.test(named(f)));
+  const ranked = [
+    ...widest(photos.filter((f) => f.width >= f.height)),
+    ...widest(photos.filter((f) => f.width < f.height)),
+    ...widest(usable.filter((f) => !PHOTOGRAPH.test(named(f)))),
+  ];
+  const image = ranked[0]?.src || source.figures[0]?.src || source.infobox.image || null;
+
+  const plates = [];
+  const push = (src, alt) => {
+    if (src && !plates.some((p) => p.src === src)) plates.push({ src, thumb: thumbOf(src), alt: alt || '' });
+  };
+  push(image, ranked[0]?.caption);
+  ranked.slice(1, 6).forEach((f) => push(f.src, f.caption));
+  (source.infobox.images || []).slice(0, 3).forEach((i) => push(i.src, i.alt));
+  return { image, plates: plates.length > 1 ? plates : [] };
+}
+
+/** Commons thumbnails are bucket-snapped; re-point a 960px plate at 250px. */
+function thumbOf(src) {
+  return String(src).includes('/thumb/') ? String(src).replace(/\/\d+px-/, '/250px-') : src;
+}
+
+function labelValue(label, value) {
+  return value ? { label, value: String(value) } : null;
+}
+
+function fmtYear(y) {
+  if (typeof y !== 'number') return '';
+  return y < 0 ? `${Math.abs(y)} BC` : String(y);
+}
+
 // ---- generic fallback ----------------------------------------------------
 
 function genericPack(ctx) {
@@ -228,10 +473,14 @@ function mapBlock(ctx, title, focus, opts = {}) {
 function shelfBlock(ctx) {
   const { entities, source, subject } = ctx;
   const counts = new Map(source.links.map((l) => [l.title, l.count]));
+  // Two links can redirect to one article, so the map is keyed by link title but
+  // the shelf must be keyed by identity — otherwise a volume appears twice.
+  const seen = new Set();
   const items = [...entities.values()]
     .filter((e) => e.qid !== subject?.qid && (e.thumb || e.description))
     .map((e) => ({ ...cardOf(e), weight: (counts.get(e.title) || 0) + (e.thumb ? 2 : 0) }))
     .sort((a, b) => b.weight - a.weight)
+    .filter((e) => !e.qid || (!seen.has(e.qid) && seen.add(e.qid)))
     .slice(0, 12);
   if (!items.length) return null;
   return {

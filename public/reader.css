@@ -103,10 +103,67 @@ a { color: inherit; }
 /* ---- main column ---- */
 .book { margin-left: var(--rail-w); padding-bottom: 20vh; }
 
-.loading { padding: 22vh 40px; text-align: center; color: var(--paper-dim); font-family: var(--sans); }
-.loading-mark { font-size: 40px; margin-bottom: 18px; animation: pulse 1.6s ease-in-out infinite; }
-.loading-sub { font-size: 12.5px; color: var(--paper-faint); }
-@keyframes pulse { 0%,100% { opacity:.35 } 50% { opacity:1 } }
+@keyframes pulse { 0%,100% { opacity:.3 } 50% { opacity:1 } }
+@keyframes arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* ---- the binding screen ----
+   Shown only until the article's own text arrives, which on a cold build is
+   about a fifth of the total. Every line on it is a real event from the build,
+   with the real elapsed time — there is no synthetic progress here. */
+.binder { min-height: 84vh; display: flex; align-items: center; }
+.binder-inner { width: 100%; max-width: 1080px; margin: 0 auto; padding: 0 40px; }
+.binder-eyebrow {
+  font-family: var(--sans); font-size: 10.5px; letter-spacing: .24em;
+  text-transform: uppercase; color: var(--gold); margin-bottom: 16px;
+}
+.binder-title {
+  font-size: clamp(2rem, 4.6vw, 3.4rem); line-height: 1.05; margin: 0;
+  font-weight: 600; letter-spacing: -.02em; text-wrap: balance;
+}
+.binder-stages { list-style: none; margin: 34px 0 0; padding: 0; border-left: 1px solid var(--rule-soft); max-width: 40rem; }
+.binder-stages li {
+  position: relative; padding: 9px 0 9px 26px;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 20px;
+  font-family: var(--sans); font-size: 12.5px; color: var(--paper-faint);
+}
+.binder-stages li::before {
+  content: ''; position: absolute; left: -4px; top: 16px;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--rule);
+}
+.binder-stages li.on { color: var(--paper); }
+.binder-stages li.on::before {
+  background: var(--ember); box-shadow: 0 0 0 4px rgba(200,118,63,.14);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.binder-ms { font-family: var(--mono); font-size: 11px; color: var(--paper-faint); flex: 0 0 auto; }
+.binder-foot { margin-top: 30px; font-family: var(--sans); font-size: 11.5px; color: var(--paper-faint); }
+.binder.failed .binder-title { color: var(--blood); }
+.binder.failed .binder-stages li.on::before { background: var(--blood); box-shadow: none; animation: none; }
+
+/* ---- apparatus strip ----
+   The book is readable while the rest of it is still being built. Say so. */
+.apparatus-note {
+  position: fixed; left: calc(var(--rail-w) + 26px); bottom: 22px; z-index: 55;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 15px; border: 1px solid var(--rule); border-radius: 2px;
+  background: rgba(20,18,15,.93); backdrop-filter: blur(6px);
+  box-shadow: 0 14px 34px rgba(0,0,0,.55);
+  font-family: var(--sans); font-size: 11.5px; color: var(--paper-dim);
+  transition: opacity .5s ease, transform .5s ease;
+}
+.apparatus-note.done { opacity: 0; transform: translateY(10px); }
+.apparatus-pulse {
+  flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ember); animation: pulse 1.5s ease-in-out infinite;
+}
+
+.arriving { animation: arrive .5s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .arriving { animation: none; }
+  .binder-stages li.on::before, .apparatus-pulse { animation: none; }
+  html { scroll-behavior: auto; }
+}
 
 .wrap { max-width: 1080px; margin: 0 auto; padding: 0 40px; }
 .measure { max-width: var(--measure); }
@@ -271,7 +328,7 @@ section.block:first-of-type { border-top: 0; }
 
 /* ---- map ---- */
 .map-shell { height: 60vh; min-height: 420px; border: 1px solid var(--rule); background: var(--ink-3); position: relative; }
-#map { width: 100%; height: 100%; background: #10100f; }
+.map-mount { width: 100%; height: 100%; background: #10100f; }
 .leaflet-container { background: #10100f; font-family: var(--sans); }
 .leaflet-tile { filter: grayscale(.6) brightness(.62) contrast(1.12) sepia(.22); }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--ink-2); color: var(--paper); border: 1px solid var(--rule); border-radius: 2px; }
@@ -282,12 +339,139 @@ section.block:first-of-type { border-top: 0; }
 .pin.primary { width: 15px; height: 15px; background: var(--gold); box-shadow: 0 0 0 5px rgba(216,178,106,.22); }
 .map-fallback { padding: 28px; display: grid; grid-template-columns: repeat(auto-fill,minmax(190px,1fr)); gap: 12px; font-family: var(--sans); font-size: 12.5px; color: var(--paper-dim); }
 
+/* ---- country: identity ---- */
+.identity { display: grid; grid-template-columns: auto 1fr; gap: 44px; align-items: start; }
+.emblems { display: flex; gap: 22px; align-items: flex-start; }
+.emblem { margin: 0; }
+.emblem img { display: block; border: 1px solid var(--rule); background: var(--ink-3); }
+.emblem.flag img { width: 200px; height: auto; }
+.emblem.arms img { width: 96px; height: auto; border: 0; background: none; }
+.emblem figcaption {
+  font-family: var(--sans); font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--paper-faint); margin-top: 8px;
+}
+.identity-rows { margin: 0; display: grid; grid-template-columns: minmax(110px, auto) 1fr; gap: 0 20px; align-self: center; }
+.identity-rows dt {
+  font-family: var(--sans); font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--paper-faint); padding: 10px 0; border-top: 1px solid var(--rule-soft);
+}
+.identity-rows dd { margin: 0; padding: 10px 0; border-top: 1px solid var(--rule-soft); font-size: .95rem; }
+
+.identity-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 34px; margin-top: 40px; }
+.dated-list { list-style: none; margin: 0; padding: 0; }
+.dated-list li { display: flex; gap: 14px; padding: 6px 0; border-top: 1px solid var(--rule-soft); }
+.dated-when {
+  font-family: var(--mono); font-size: 11.5px; color: var(--gold);
+  flex: 0 0 96px; white-space: nowrap; padding-top: 2px;
+}
+.dated-what { font-size: .9rem; color: var(--paper-dim); text-decoration: none; }
+a.dated-what:hover { color: var(--ember); }
+
+/* ---- country: lineage ---- */
+.lineage {
+  display: flex; align-items: stretch; gap: 0;
+  overflow-x: auto; padding-bottom: 14px; scrollbar-width: thin;
+}
+.lin-col { flex: 0 0 auto; width: 176px; display: flex; flex-direction: column; gap: 10px; }
+.lin-era {
+  font-family: var(--sans); font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--paper-faint); padding-bottom: 8px; border-bottom: 1px solid var(--rule-soft); margin-bottom: 4px;
+}
+.lin-col.subject .lin-era { color: var(--gold); border-bottom-color: var(--ember-soft); }
+/* Beside the first card, not centred in the column: a dissolution column can be
+   six cards tall, and a centred arrow floats in empty space. */
+.lin-arrow {
+  flex: 0 0 auto; width: 34px; display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 76px; color: var(--rule); font-size: 15px;
+}
+.lin-node {
+  display: block; text-decoration: none; padding: 12px; background: var(--ink-2);
+  border: 1px solid var(--rule-soft); transition: .2s;
+}
+a.lin-node:hover { border-color: var(--ember-soft); transform: translateY(-2px); }
+.lin-node.on { border-color: var(--gold); background: rgba(216,178,106,.06); }
+.lin-flag { height: 34px; margin-bottom: 10px; display: flex; align-items: center; }
+.lin-flag img { max-height: 34px; max-width: 100%; border: 1px solid var(--rule); }
+.lin-flag.empty::before { content: ''; width: 44px; height: 26px; border: 1px dashed var(--rule); }
+.lin-name { font-size: .92rem; line-height: 1.28; margin-bottom: 5px; }
+.lin-span { font-family: var(--mono); font-size: 10.5px; color: var(--paper-faint); }
+.lin-via {
+  font-family: var(--sans); font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ember-soft); margin-top: 7px;
+}
+.lin-more { font-family: var(--sans); font-size: 10.5px; color: var(--paper-faint); padding-top: 4px; }
+
+/* ---- country: dated series ---- */
+.series-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.series-line { fill: none; stroke: var(--ember); stroke-width: 1.8; stroke-linejoin: round; }
+.series-dot { fill: var(--ember); opacity: .55; }
+.series-dot.mark { fill: var(--gold); opacity: 1; }
+.series-grid { stroke: var(--rule-soft); stroke-width: 1; }
+.series-gridlabel, .series-mark, .series-xlabel { font-family: var(--mono); fill: var(--paper-faint); }
+.series-gridlabel { font-size: 10px; }
+.series-xlabel { font-size: 10.5px; }
+.series-mark { font-size: 12px; fill: var(--gold); }
+
+/* ---- country: rulers ---- */
+.ruler-axis { position: relative; height: 18px; margin: 4px 0 10px; }
+.ruler-year {
+  position: absolute; transform: translateX(-50%);
+  font-family: var(--mono); font-size: 10px; color: var(--paper-faint);
+}
+.ruler-track { margin-bottom: 30px; }
+.ruler-track h3 {
+  font-family: var(--sans); font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--ember); margin: 0 0 12px;
+}
+.ruler-row {
+  display: grid; grid-template-columns: 34px 190px 1fr 96px; gap: 12px;
+  align-items: center; text-decoration: none; color: inherit; padding: 3px 0;
+}
+a.ruler-row:hover .ruler-name span:first-child { color: var(--gold); }
+.ruler-face {
+  width: 34px; height: 34px; border-radius: 50%; overflow: hidden;
+  background: var(--ink-3); border: 1px solid var(--rule);
+}
+.ruler-face img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(.5) contrast(1.05); }
+.ruler-face.empty { display: flex; align-items: center; justify-content: center; color: var(--rule); font-size: 14px; }
+.ruler-name { min-width: 0; font-size: .9rem; line-height: 1.25; }
+.ruler-name span { display: block; }
+.ruler-note {
+  font-family: var(--sans); font-size: 9.5px; color: var(--paper-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ruler-rail { position: relative; height: 20px; background: linear-gradient(var(--rule-soft), var(--rule-soft)) center/100% 1px no-repeat; }
+.ruler-rail .bar { position: absolute; top: 4px; height: 12px; min-width: 3px; }
+.ruler-span { font-family: var(--mono); font-size: 10.5px; color: var(--paper-faint); text-align: right; white-space: nowrap; }
+
+/* ---- map layers ---- */
+.map-layers { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.layer-tab {
+  font-family: var(--sans); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  padding: 6px 12px; border: 1px solid var(--rule); background: none; color: var(--paper-faint);
+  cursor: pointer; border-radius: 2px; transition: .15s;
+}
+.layer-tab span { font-family: var(--mono); letter-spacing: 0; opacity: .6; margin-left: 6px; }
+.layer-tab:hover { color: var(--paper); }
+.layer-tab.on { border-color: var(--ember); color: var(--ember); background: rgba(200,118,63,.08); }
+.pin.faint { width: 7px; height: 7px; background: var(--steel); box-shadow: 0 0 0 2px rgba(91,122,140,.2); }
+
 /* ---- chronology ---- */
 .chrono-rail {
   position: relative; height: 92px; border-top: 1px solid var(--rule);
   border-bottom: 1px solid var(--rule); margin: 8px 0 26px; cursor: crosshair;
 }
 .chrono-axis { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--rule); }
+/* Era bands: equal spans of time drawn at unequal width, so the compression of
+   a two-millennium axis is visible rather than silent. */
+.chrono-rail.banded { height: 104px; }
+.chrono-band { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--rule-soft); }
+.chrono-band.alt { background: rgba(255,255,255,.022); }
+.chrono-bandlabel {
+  position: absolute; top: 6px; left: 5px;
+  font-family: var(--mono); font-size: 10px; color: var(--paper-faint); white-space: nowrap;
+}
+.chrono-band.tight .chrono-bandlabel { display: none; }
 .chrono-tick { position: absolute; top: 50%; transform: translate(-50%,-50%); }
 .chrono-tick i {
   display: block; width: 7px; height: 7px; border-radius: 50%;
@@ -345,6 +529,25 @@ section.block:first-of-type { border-top: 0; }
 .prose th, .prose td { border: 1px solid var(--rule-soft); padding: 7px 10px; text-align: left; vertical-align: top; }
 .prose th { color: var(--paper-dim); font-weight: 500; background: rgba(255,255,255,.02); }
 .prose img { max-width: 100%; height: auto; }
+
+/* Wikipedia's own float and multi-image boxes carry inline pixel widths — a
+   400px `floatright`, a `trow` of three side-by-side plates — which are wider
+   than a phone and scroll the whole page sideways. These need !important:
+   the offending declaration is an inline `max-width`, which a stylesheet
+   cannot outrank any other way. */
+.prose .thumb, .prose .thumbinner, .prose .tmulti, .prose .tsingle, .prose .trow,
+.prose .floatright, .prose .floatleft, .prose .center,
+.prose .gallery, .prose .gallerybox, .prose .gallerytext, .prose .thumb-inner,
+.prose .floatright > *, .prose .floatleft > *, .prose .thumbinner > *,
+.prose .tsingle > *, .prose .gallerybox > * {
+  max-width: 100% !important;
+}
+.prose .gallery { padding-left: 0; }
+.prose .trow { display: flex; flex-wrap: wrap; }
+.prose .tsingle { min-width: 0; }
+/* Annotated images position their labels absolutely at fixed offsets, so no
+   width cap reaches them. Let the figure scroll rather than the page. */
+.prose .noresize { overflow-x: auto; }
 
 .wb-link {
   color: var(--paper); text-decoration: none;
@@ -428,6 +631,7 @@ section.block:first-of-type { border-top: 0; }
   .toll { grid-template-columns: 1fr; gap: 32px; }
   .raw-src.on { grid-template-columns: 1fr; gap: 20px; }
   .notes-list { columns: 1; }
+  .identity { grid-template-columns: 1fr; gap: 30px; }
 }
 @media (max-width: 860px) {
   body { font-size: 17px; }
@@ -451,4 +655,29 @@ section.block:first-of-type { border-top: 0; }
   /* Facts stack, so the column rules become stray vertical lines. */
   .cover-facts { display: block; }
   .cover-fact { border-right: 0; margin-right: 0; padding-right: 0; }
+
+  /* The emblem strip and the lineage strip both scroll rather than squeeze. */
+  .emblems { gap: 16px; }
+  .emblem.flag img { width: 150px; }
+  .emblem.arms img { width: 72px; }
+  .identity-rows { grid-template-columns: minmax(96px, auto) 1fr; gap: 0 14px; }
+  .lin-col { width: 150px; }
+  .lin-arrow { width: 22px; }
+  /* Portrait, name and dates share the first row; the bar gets its own beneath,
+     full width, because a tenure bar in 120px says nothing. */
+  .ruler-row { grid-template-columns: 28px 1fr auto; gap: 10px; row-gap: 0; }
+  .ruler-face { grid-area: 1 / 1; width: 28px; height: 28px; }
+  .ruler-name { grid-area: 1 / 2; }
+  .ruler-span { grid-area: 1 / 3; }
+  .ruler-rail { grid-area: 2 / 1 / 3 / 4; height: 14px; margin-bottom: 10px; }
+  .ruler-rail .bar { top: 2px; height: 10px; }
+  .dated-list li { gap: 10px; }
+  .dated-when { flex-basis: 84px; }
+  .binder-inner { padding: 0 22px; }
+  .apparatus-note { left: 16px; right: 16px; bottom: 16px; }
+
+  /* A floated plate in a 331px column leaves no column. Let them stack. */
+  .prose .thumb, .prose .floatright, .prose .floatleft {
+    float: none; margin-left: 0; margin-right: 0;
+  }
 }

@@ -13,7 +13,18 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 const fmt = new Intl.NumberFormat('en-US');
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-const state = { book: null, notes: new Map(), summaries: new Map(), chrono: 0 };
+const state = {
+  book: null, notes: new Map(), summaries: new Map(), chrono: 0,
+  wired: false, spineIO: null, scrollWired: false,
+  warmed: new Set(),
+};
+
+// A reading session is allowed this many speculative builds. Past it we stop
+// asking: a reader who has hovered two dozen links is browsing, not walking.
+const WARM_BUDGET = 24;
+// Dwell before a hover counts as intent. Short enough to be useful, long enough
+// that dragging the pointer across a paragraph of links warms none of them.
+const WARM_DWELL_MS = 120;
 
 // ---- boot ----------------------------------------------------------------
 
@@ -22,41 +33,237 @@ boot();
 async function boot() {
   const m = /^\/read\/(.+)$/.exec(location.pathname);
   const title = m ? decodeURIComponent(m[1]) : 'Battle_of_Stalingrad';
-  document.getElementById('loadingText').textContent = `Binding “${title.replace(/_/g, ' ')}”…`;
+  const binder = openBinder(title);
 
   try {
-    const res = await fetch(`/api/book/${encodeURIComponent(title)}`);
-    if (!res.ok) throw new Error((await res.json()).error || res.statusText);
-    const book = await res.json();
-    state.book = book;
-    for (const n of book.notes) state.notes.set(n.id, n);
-    document.title = `${book.title} — Reading Room`;
-    render(book);
+    await streamBook(title, {
+      onStage: binder.stage,
+      onText: (book) => {
+        adopt(book);
+        binder.close();
+        paint();
+        // Only now, with the spine on screen, does the reader have anything to
+        // reach for — so this is the earliest the warming engine can be useful.
+        if (book.stats?.phase === 'text') showApparatusNote();
+      },
+      onApparatus: (blocks, stats) => {
+        state.book.blocks = blocks;
+        state.book.stats = stats;
+        hideApparatusNote();
+        paint();
+      },
+    });
   } catch (err) {
-    document.getElementById('book').innerHTML =
-      `<div class="loading"><div class="loading-mark">✕</div><p>Could not bind this volume.</p>
-       <p class="loading-sub">${esc(err.message)}</p></div>`;
+    binder.fail(err.message);
   }
+}
+
+/**
+ * Reads the NDJSON build stream. Each frame is a real milestone in the build,
+ * not a progress estimate — see `streamBook` in server.js.
+ */
+async function streamBook(title, { onStage, onText, onApparatus }) {
+  const res = await fetch(`/api/book/${encodeURIComponent(title)}?stream=1`);
+  if (!res.ok || !res.body) throw new Error(res.statusText || 'no response');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let cut;
+    while ((cut = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, cut).trim();
+      buffer = buffer.slice(cut + 1);
+      if (!line) continue;
+
+      let frame;
+      try { frame = JSON.parse(line); } catch { continue; }
+      if (frame.type === 'stage') onStage(frame);
+      else if (frame.type === 'text') onText(frame.book);
+      else if (frame.type === 'apparatus') onApparatus(frame.blocks, frame.stats);
+      else if (frame.type === 'error') throw new Error(frame.error);
+    }
+  }
+}
+
+function adopt(book) {
+  state.book = book;
+  state.notes.clear();
+  for (const n of book.notes) state.notes.set(n.id, n);
+  document.title = `${book.title} — Reading Room`;
 }
 
 // ---- render --------------------------------------------------------------
 
-function render(book) {
+/**
+ * Paints the current blocks. Called twice on a cold open — once with the text,
+ * once when the apparatus lands — so it has to be idempotent and, more
+ * importantly, must not move the page under someone who is already reading.
+ */
+function paint() {
+  const book = state.book;
   const root = document.getElementById('book');
-  root.innerHTML = '';
 
+  // The spine is the expensive node (Japan: 35 chapters of parsed HTML) and the
+  // one the reader may be inside of. Reuse it rather than rebuilding it, both to
+  // skip the work and to keep scroll position, loaded images and text selection.
+  const spine = root.querySelector('[data-block="chapters"]');
+  const anchor = spine ? spine.getBoundingClientRect().top : null;
+
+  const before = state.paintedTypes;
+  const nodes = [];
   for (const block of book.blocks) {
+    if (block.type === 'chapters' && spine) { nodes.push(spine); continue; }
     const node = RENDER[block.type]?.(block, book);
-    if (node) root.appendChild(node);
+    if (!node) continue;
+    node.dataset.block = block.type;
+    // Only genuinely new blocks animate in. Re-rendering the cover in place is
+    // not an arrival and should not look like one.
+    if (before && !before.has(block.type)) node.classList.add('arriving');
+    nodes.push(node);
   }
-  root.appendChild(colophon(book));
+  nodes.push(colophon(book));
+  root.replaceChildren(...nodes);
+  state.paintedTypes = new Set(book.blocks.map((b) => b.type));
+
+  // Apparatus blocks insert *above* the spine, so without this the reader's
+  // paragraph jumps down the screen the moment the second frame lands.
+  if (anchor != null) {
+    const shift = spine.getBoundingClientRect().top - anchor;
+    if (Math.abs(shift) > 1) window.scrollBy({ top: shift, behavior: 'instant' });
+  }
 
   buildToc(book);
   wireSpine();
-  wireHovercards();
-  wireNotes();
-  document.getElementById('railToggle').onclick =
-    () => document.getElementById('rail').classList.toggle('open');
+
+  if (!state.wired) {
+    wireHovercards();
+    wireNotes();
+    wireWarming();
+    document.getElementById('railToggle').onclick =
+      () => document.getElementById('rail').classList.toggle('open');
+    state.wired = true;
+  }
+}
+
+// ---- the binding screen --------------------------------------------------
+
+// Each stage is a real event from the build, phrased for a reader. Anything the
+// server does not report simply never appears — there is no invented progress.
+const STAGE_TEXT = {
+  fetching: (s) => `Fetching “${s.of}” from Wikipedia`,
+  revision: (s) => (s.cached ? `Revision ${s.revid}, already on disk` : `Revision ${s.revid}`),
+  parsed: (s) => `${fmt.format(s.chapters)} sections · ${fmt.format(s.notes)} references · ${fmt.format(s.links)} links`,
+  classified: (s) => `Archetype: ${s.archetype}`,
+  resolving: (s) => `Resolving ${fmt.format(s.links)} entities against Wikidata`,
+  lineage: () => 'Walking the succession graph',
+  bound: (s) => (s.fromCache ? 'Bound from cache' : 'Bound'),
+};
+
+function openBinder(title) {
+  const box = document.getElementById('binder');
+  const list = document.getElementById('binderStages');
+  document.getElementById('binderTitle').textContent = title.replace(/_/g, ' ');
+  const seen = new Set();
+
+  return {
+    stage(ev) {
+      const line = STAGE_TEXT[ev.name]?.(ev);
+      if (!line || seen.has(ev.name)) return;
+      seen.add(ev.name);
+      list.querySelectorAll('li').forEach((li) => li.classList.remove('on'));
+      const li = el('li', 'on', esc(line));
+      li.appendChild(el('span', 'binder-ms', `${(ev.at / 1000).toFixed(1)}s`));
+      list.appendChild(li);
+      // The apparatus stages land after the reader is already reading; from
+      // there on they belong in the quiet strip, not on a full-screen splash.
+      if (state.book) noteApparatus(line);
+    },
+    close() { box?.remove(); },
+    fail(message) {
+      if (!box) return;
+      box.classList.add('failed');
+      document.getElementById('binderTitle').textContent = 'Could not bind this volume';
+      list.replaceChildren(el('li', 'on', esc(message)));
+    },
+  };
+}
+
+// ---- the apparatus strip -------------------------------------------------
+//
+// The book is readable while its apparatus is still being built. This says so,
+// quietly, instead of letting blocks appear out of nowhere.
+
+function apparatusStrip() {
+  let strip = document.getElementById('apparatusNote');
+  if (!strip) {
+    strip = el('div', 'apparatus-note');
+    strip.id = 'apparatusNote';
+    document.body.appendChild(strip);
+  }
+  return strip;
+}
+
+function showApparatusNote() {
+  const strip = apparatusStrip();
+  strip.replaceChildren(el('span', 'apparatus-pulse'), el('span', null, 'Building the apparatus…'));
+}
+
+function noteApparatus(line) {
+  const strip = document.getElementById('apparatusNote');
+  if (!strip) return;
+  strip.replaceChildren(el('span', 'apparatus-pulse'), el('span', null, esc(line)));
+}
+
+function hideApparatusNote() {
+  const strip = document.getElementById('apparatusNote');
+  if (!strip) return;
+  strip.classList.add('done');
+  setTimeout(() => strip.remove(), 900);
+}
+
+// ---- the warming engine (client half) ------------------------------------
+//
+// Every book links to others: prose wikilinks, shelf cards, lineage nodes,
+// ruler portraits, map pins. Reaching for one of them is a signal that we have
+// a second or two to bind it before it is asked for.
+
+/** The book a node would open, from either a hover-card handle or a real href. */
+function titleOf(node) {
+  const hit = node?.closest?.('[data-title], a[href^="/read/"]');
+  if (!hit) return null;
+  if (hit.dataset?.title) return hit.dataset.title.replace(/_/g, ' ');
+  const m = /^\/read\/(.+)$/.exec(hit.getAttribute('href') || '');
+  return m ? decodeURIComponent(m[1]).replace(/_/g, ' ') : null;
+}
+
+function wireWarming() {
+  // Someone on a metered connection did not ask us to speculate on their behalf.
+  if (navigator.connection?.saveData) return;
+
+  const ask = (title) => {
+    if (!title || title === state.book?.title) return;
+    if (state.warmed.has(title) || state.warmed.size >= WARM_BUDGET) return;
+    state.warmed.add(title);
+    fetch(`/api/warm?title=${encodeURIComponent(title)}`, { keepalive: true }).catch(() => {});
+  };
+
+  let dwell = null;
+  document.addEventListener('pointerover', (ev) => {
+    clearTimeout(dwell);
+    const title = titleOf(ev.target);
+    if (title) dwell = setTimeout(() => ask(title), WARM_DWELL_MS);
+  }, { passive: true });
+
+  // Keyboard and touch never hover, and a click is the last moment that asking
+  // still helps — the build outlives the navigation and the next page finds it.
+  document.addEventListener('focusin', (ev) => ask(titleOf(ev.target)));
+  document.addEventListener('pointerdown', (ev) => ask(titleOf(ev.target)), { capture: true, passive: true });
 }
 
 const RENDER = {
@@ -68,6 +275,10 @@ const RENDER = {
   stats: renderStats,
   facts: renderFacts,
   contemporaries: renderContemporaries,
+  identity: renderIdentity,
+  lineage: renderLineage,
+  series: renderSeries,
+  rulers: renderRulers,
   map: renderMap,
   chronology: renderChronology,
   chapters: renderChapters,
@@ -295,7 +506,10 @@ function personCard(p) {
   card.appendChild(face);
   card.appendChild(el('div', 'person-name', esc(p.label)));
   if (p.description) card.appendChild(el('div', 'person-desc', esc(p.description)));
-  card.onclick = () => { location.href = `/read/${encodeURIComponent(p.title.replace(/ /g, '_'))}`; };
+  // Exposed so the warming engine can see what this card would open — the
+  // click handler alone is invisible to it.
+  card.dataset.title = p.title;
+  card.onclick = () => { location.href = bookHref(p.title); };
   return card;
 }
 
@@ -377,12 +591,311 @@ function renderFacts(b) {
   return s;
 }
 
+// ---- country: identity ---------------------------------------------------
+
+const bookHref = (title) => `/read/${encodeURIComponent(String(title).replace(/ /g, '_'))}`;
+const fmtYear = (y) => (typeof y !== 'number' ? '—' : y < 0 ? `${Math.abs(y)} BC` : String(y));
+const span = (from, to) => (from == null && to == null ? '' : `${fmtYear(from)}–${to == null ? '' : fmtYear(to)}`);
+
+function renderIdentity(b) {
+  const { s, w } = section(b);
+  const grid = el('div', 'identity');
+
+  if (b.emblems.length) {
+    const strip = el('div', 'emblems');
+    for (const e of b.emblems) {
+      const fig = el('figure', `emblem ${e.kind === 'Flag' ? 'flag' : 'arms'}`);
+      fig.appendChild(Object.assign(new Image(), { src: e.src, alt: e.kind, loading: 'lazy' }));
+      fig.appendChild(el('figcaption', null, esc(e.kind)));
+      strip.appendChild(fig);
+    }
+    grid.appendChild(strip);
+  }
+
+  const dl = el('dl', 'identity-rows');
+  for (const r of b.rows) {
+    dl.appendChild(el('dt', null, esc(r.label)));
+    dl.appendChild(el('dd', null, esc(r.value)));
+  }
+  grid.appendChild(dl);
+  w.appendChild(grid);
+
+  // Two findings that only exist because the qualifiers were kept: a country
+  // usually records more than one founding, and its capital has moved.
+  const notes = el('div', 'identity-notes');
+  if (b.foundings?.length) {
+    const box = el('div');
+    box.appendChild(el('div', 'formation-name', 'Dated foundings on record'));
+    const ul = el('ul', 'dated-list');
+    for (const f of b.foundings) {
+      const li = el('li');
+      li.appendChild(el('span', 'dated-when', esc(fmtYear(f.year))));
+      // A date the source records without naming what it founded stays a date.
+      const what = f.ofTitle ? el('a', 'dated-what') : el('span', 'dated-what');
+      what.textContent = f.of || '—';
+      if (f.ofTitle) what.href = bookHref(f.ofTitle);
+      li.appendChild(what);
+      ul.appendChild(li);
+    }
+    box.appendChild(ul);
+    notes.appendChild(box);
+  }
+  if (b.formerCapitals?.length) {
+    const box = el('div');
+    box.appendChild(el('div', 'formation-name', 'Earlier seats of government'));
+    const ul = el('ul', 'dated-list');
+    for (const c of b.formerCapitals) {
+      const li = el('li');
+      li.appendChild(el('span', 'dated-when', esc(span(c.from, c.to))));
+      const a = el('a', 'dated-what', esc(c.label));
+      if (c.title) a.href = bookHref(c.title);
+      li.appendChild(a);
+      ul.appendChild(li);
+    }
+    box.appendChild(ul);
+    notes.appendChild(box);
+  }
+  if (notes.childNodes.length) w.appendChild(notes);
+  return s;
+}
+
+// ---- country: lineage ----------------------------------------------------
+
+function levelLabel(level) {
+  if (level === 0) return 'This state';
+  if (level === -1) return 'Preceded by';
+  if (level === 1) return 'Succeeded by';
+  return level < 0 ? `${-level} steps earlier` : `${level} steps later`;
+}
+
+function renderLineage(b) {
+  const { s, w } = section(b);
+  const strip = el('div', 'lineage');
+
+  b.levels.forEach((level, i) => {
+    if (i) strip.appendChild(el('div', 'lin-arrow', '→'));
+    const col = el('div', `lin-col${level === 0 ? ' subject' : ''}`);
+    col.appendChild(el('div', 'lin-era', esc(levelLabel(level))));
+
+    for (const n of b.nodes.filter((x) => x.level === level)) {
+      const card = n.title ? el('a', 'lin-node') : el('div', 'lin-node');
+      if (n.qid === b.subjectQid) card.classList.add('on');
+      if (n.title) card.href = bookHref(n.title);
+
+      const art = el('div', 'lin-flag');
+      if (n.flag) art.appendChild(Object.assign(new Image(), { src: n.flag, alt: '', loading: 'lazy' }));
+      else art.classList.add('empty');
+      card.appendChild(art);
+
+      card.appendChild(el('div', 'lin-name', esc(n.label)));
+      card.appendChild(el('div', 'lin-span', esc(span(n.from, n.to) || 'undated')));
+      if (n.via) card.appendChild(el('div', 'lin-via', esc(n.via)));
+      col.appendChild(card);
+    }
+
+    const cut = b.truncated.find((t) => t.level === level);
+    if (cut) col.appendChild(el('div', 'lin-more', `+${cut.n} more not shown`));
+    strip.appendChild(col);
+  });
+
+  w.appendChild(strip);
+  return s;
+}
+
+// ---- country: dated series ----------------------------------------------
+
+const SERIES_FMT = {
+  int: (v) => fmt.format(Math.round(v)),
+  decimal: (v) => v.toFixed(3),
+  usd: (v) => (v >= 1e12 ? `$${(v / 1e12).toFixed(2)}tn` : v >= 1e9 ? `$${(v / 1e9).toFixed(1)}bn` : `$${fmt.format(Math.round(v))}`),
+};
+
+function renderSeries(b) {
+  const { s, w } = section(b);
+  const tabs = el('div', 'phase-tabs');
+  const body = el('div');
+
+  const draw = (spec) => {
+    body.innerHTML = '';
+    const f = SERIES_FMT[spec.format] || SERIES_FMT.int;
+    const pts = spec.points;
+    const W = 720, H = 260, PAD_L = 14, PAD_R = 14, PAD_T = 26, PAD_B = 30;
+
+    const xs = pts.map((p) => p.year);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    const lo = spec.low.value, hi = spec.peak.value;
+    const pad = (hi - lo) * 0.12 || Math.abs(hi) * 0.1 || 1;
+    const y0 = lo - pad, y1 = hi + pad;
+
+    const X = (year) => PAD_L + ((year - x0) / Math.max(1e-9, x1 - x0)) * (W - PAD_L - PAD_R);
+    const Y = (v) => PAD_T + (1 - (v - y0) / Math.max(1e-9, y1 - y0)) * (H - PAD_T - PAD_B);
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('class', 'series-svg');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label',
+      `${spec.label}, ${pts.length} points from ${pts[0].year} to ${pts[pts.length - 1].year}`);
+
+    const add = (tag, attrs, text) => {
+      const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+      if (text != null) n.textContent = text;
+      svg.appendChild(n);
+      return n;
+    };
+
+    // Three gridlines, but only the middle one is labelled: the outer two sit
+    // exactly on the low and peak values, whose labels the marks already draw.
+    for (const v of [lo, (lo + hi) / 2, hi]) {
+      add('line', { x1: PAD_L, x2: W - PAD_R, y1: Y(v), y2: Y(v), class: 'series-grid' });
+    }
+    add('text', { x: PAD_L, y: Y((lo + hi) / 2) - 5, class: 'series-gridlabel' }, f((lo + hi) / 2));
+
+    add('path', {
+      class: 'series-line',
+      d: pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.year).toFixed(1)} ${Y(p.value).toFixed(1)}`).join(' '),
+    });
+
+    for (const p of pts) {
+      add('circle', { cx: X(p.year), cy: Y(p.value), r: 2.6, class: 'series-dot' })
+        .appendChild(Object.assign(document.createElementNS('http://www.w3.org/2000/svg', 'title'),
+          { textContent: `${fmtYear(p.year)} · ${f(p.value)}` }));
+    }
+
+    // Only the three points that carry meaning get a label; labelling all of
+    // them would be a table, and a table is what the axis is trying not to be.
+    const marks = [[pts[0], 'start'], [pts[pts.length - 1], 'end'], [spec.peak, 'peak'], [spec.low, 'low']];
+    const done = new Set();
+    for (const [p, kind] of marks) {
+      if (!p || done.has(p.year)) continue;
+      done.add(p.year);
+      add('circle', { cx: X(p.year), cy: Y(p.value), r: 4.2, class: 'series-dot mark' });
+      const anchor = kind === 'end' ? 'end' : kind === 'start' ? 'start' : 'middle';
+      // A trough is labelled below its point, a crest above, so the label never
+      // sits on the line it belongs to.
+      const below = kind === 'low' || (kind !== 'peak' && p.value < (lo + hi) / 2);
+      add('text', {
+        x: X(p.year), y: Y(p.value) + (below ? 20 : -12), class: 'series-mark', 'text-anchor': anchor,
+      }, `${f(p.value)}`);
+      add('text', {
+        x: X(p.year), y: H - 10, class: 'series-xlabel', 'text-anchor': anchor,
+      }, fmtYear(p.year));
+    }
+
+    body.appendChild(svg);
+
+    const note = el('div', 'chrono-src');
+    const bits = [`${pts.length} dated points · ${fmtYear(pts[0].year)}–${fmtYear(pts[pts.length - 1].year)}`];
+    if (spec.criterionLabel) bits.push(`basis: ${spec.criterionLabel}`);
+    // The dropped count is the honest part: it says the chart is a subset and
+    // how large a subset, rather than implying the source held only these.
+    if (spec.dropped) bits.push(`${spec.dropped} statement${spec.dropped === 1 ? '' : 's'} on another basis are not plotted`);
+    note.textContent = bits.join(' · ');
+    body.appendChild(note);
+  };
+
+  b.series.forEach((spec, i) => {
+    const t = el('button', `phase-tab${i === 0 ? ' on' : ''}`, esc(spec.label));
+    t.onclick = () => {
+      tabs.querySelectorAll('.phase-tab').forEach((x) => x.classList.remove('on'));
+      t.classList.add('on');
+      draw(spec);
+    };
+    tabs.appendChild(t);
+  });
+  if (b.series.length > 1) w.appendChild(tabs);
+  w.appendChild(body);
+  draw(b.series[0]);
+  return s;
+}
+
+// ---- country: rulers -----------------------------------------------------
+
+function renderRulers(b) {
+  const { s, w } = section(b);
+  const from = b.from, to = b.to;
+  const total = Math.max(1, to - from);
+  const at = (y) => ((y - from) / total) * 100;
+
+  const axis = () => {
+    const rail = el('div', 'ruler-axis');
+    const step = niceStep(total);
+    for (let y = Math.ceil(from / step) * step; y <= to; y += step) {
+      const t = el('div', 'ruler-year', esc(fmtYear(y)));
+      t.style.left = `${at(y)}%`;
+      rail.appendChild(t);
+    }
+    return rail;
+  };
+
+  w.appendChild(axis());
+
+  for (const track of b.tracks) {
+    const box = el('div', 'ruler-track');
+    box.appendChild(el('h3', null, esc(track.role)));
+
+    for (const p of track.dated) {
+      const row = p.title ? el('a', 'ruler-row') : el('div', 'ruler-row');
+      if (p.title) row.href = bookHref(p.title);
+
+      const face = el('div', `ruler-face${p.thumb ? '' : ' empty'}`);
+      if (p.thumb) face.appendChild(Object.assign(new Image(), { src: p.thumb, alt: '', loading: 'lazy' }));
+      else face.textContent = '◈';
+      row.appendChild(face);
+
+      const name = el('div', 'ruler-name');
+      name.appendChild(el('span', null, esc(p.label)));
+      if (p.note) name.appendChild(el('span', 'ruler-note', esc(p.note)));
+      row.appendChild(name);
+
+      const rail = el('div', 'ruler-rail');
+      const end = p.to == null ? to : p.to;
+      const bar = el('div', `bar ${p.current ? 'b' : 'a'}`);
+      bar.style.left = `${at(p.from)}%`;
+      // A one-year term is a real event; give it something to be seen by.
+      bar.style.width = `${Math.max(0.6, at(end) - at(p.from))}%`;
+      bar.title = `${fmtYear(p.from)}–${p.to == null ? 'present' : fmtYear(p.to)}`;
+      rail.appendChild(bar);
+      row.appendChild(rail);
+
+      row.appendChild(el('div', 'ruler-span', esc(`${fmtYear(p.from)}–${p.to == null ? '' : fmtYear(p.to)}`)));
+      box.appendChild(row);
+    }
+
+    if (track.omitted) {
+      box.appendChild(el('div', 'chrono-src', `${track.omitted} earlier ${track.role.toLowerCase()} terms are recorded but not drawn.`));
+    }
+    // Never silently dropped: a term with no start date cannot be placed on an
+    // axis, so it is named instead.
+    if (track.undated.length) {
+      const list = track.undated.map((p) => p.label).join(', ');
+      box.appendChild(el('div', 'chrono-src', `No dated term in the source: ${list}`));
+    }
+    w.appendChild(box);
+  }
+
+  w.appendChild(axis());
+  return s;
+}
+
+function niceStep(span) {
+  for (const s of [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000]) if (span / s <= 9) return s;
+  return 2000;
+}
+
 // ---- map -----------------------------------------------------------------
+
+let mapSeq = 0;
 
 function renderMap(b) {
   const { s, w } = section(b);
   const shell = el('div', 'map-shell');
-  const mount = el('div'); mount.id = 'map';
+  // Unique id: a country book can carry more than one map, and two elements
+  // with id="map" would hand Leaflet the same container twice. The height comes
+  // from the class, not the id — Leaflet in a zero-height box loads its tiles
+  // and shows nothing.
+  const mount = el('div', 'map-mount'); mount.id = `map-${++mapSeq}`;
   shell.appendChild(mount);
   w.appendChild(shell);
 
@@ -409,22 +922,52 @@ function renderMap(b) {
 
     const near = [];
     const focus = b.focus || b.points[0];
+    const groups = new Map();
     for (const p of b.points) {
       const marker = L.marker([p.lat, p.lon], {
-        icon: L.divIcon({ className: '', html: `<div class="pin${p.primary ? ' primary' : ''}"></div>`, iconSize: [12, 12] }),
-      }).addTo(map);
+        icon: L.divIcon({ className: '', html: `<div class="pin${p.primary ? ' primary' : ''}${p.layer === 'subdivisions' ? ' faint' : ''}"></div>`, iconSize: [12, 12] }),
+      });
       marker.bindPopup(
         `<strong>${esc(p.label)}</strong>${p.description ? `<br>${esc(p.description)}` : ''}` +
         `<br><a href="/read/${encodeURIComponent(p.title.replace(/ /g, '_'))}">Open as a book →</a>`);
+      const key = b.layers ? (p.layer || 'subject') : '_';
+      if (!groups.has(key)) groups.set(key, L.layerGroup());
+      groups.get(key).addLayer(marker);
       // Tight enough to frame the actual theatre, not the whole continent.
       if (haversine(focus, p) < 1000) near.push([p.lat, p.lon]);
     }
 
+    // Layered maps start with only the layers the template marked `on`, so the
+    // 47 prefectures do not bury the seven borders.
+    const shown = new Set(b.layers ? b.layers.filter((l) => l.on).map((l) => l.key) : ['_']);
+    for (const [key, g] of groups) if (shown.has(key)) g.addTo(map);
+
+    const ptsOf = (keys) => b.points.filter((p) => keys.has(b.layers ? (p.layer || 'subject') : '_')).map((p) => [p.lat, p.lon]);
     const all = b.points.map((p) => [p.lat, p.lon]);
     const fit = (pts) => {
       map.invalidateSize();
-      map.fitBounds(L.latLngBounds(pts).pad(0.18), { maxZoom: b.zoom || 8 });
+      if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.18), { maxZoom: b.zoom || 8 });
     };
+
+    if (b.layers) {
+      const bar = el('div', 'map-layers');
+      for (const layer of b.layers) {
+        const btn = el('button', `layer-tab${shown.has(layer.key) ? ' on' : ''}`,
+          `${esc(layer.label)} <span>${layer.n}</span>`);
+        btn.onclick = () => {
+          const on = shown.has(layer.key);
+          if (on) { shown.delete(layer.key); map.removeLayer(groups.get(layer.key)); }
+          else { shown.add(layer.key); groups.get(layer.key)?.addTo(map); }
+          btn.classList.toggle('on', !on);
+          fit(ptsOf(shown));
+        };
+        bar.appendChild(btn);
+      }
+      shell.parentNode.insertBefore(bar, shell);
+      fit(ptsOf(shown).length >= 2 ? ptsOf(shown) : all);
+      return;
+    }
+
     fit(near.length >= 2 ? near : all);
 
     if (near.length >= 2 && near.length < all.length) {
@@ -458,22 +1001,85 @@ function haversine(a, b) {
 
 // ---- chronology ----------------------------------------------------------
 
+// A battle runs for months and a life for decades, so a linear axis fits both.
+// A country runs for millennia with almost every event in the last two
+// centuries, and the same axis puts 90% of the rail under an empty Middle Ages.
+const LONG_SPAN_YEARS = 150;
+// How much real time survives the compression. At 0 the axis is pure event
+// rank and time is meaningless; at 1 it is linear and unreadable. At 0.35 the
+// dense modern end opens up while the era bands stay visibly unequal, which is
+// the point: the distortion is drawn, not hidden.
+const COMPRESS_ALPHA = 0.35;
+
+function chronoScale(times) {
+  const from = Math.min(...times);
+  const to = Math.max(...times);
+  const range = to - from;
+  if (range <= LONG_SPAN_YEARS) {
+    return { from, to, range, compressed: false, pos: (t) => ((t - from) / Math.max(0.001, range)) * 100 };
+  }
+
+  // Blend calendar position with the event's rank among all events. Both terms
+  // are monotonic in t, so the blend is monotonic too — the axis can compress
+  // but it can never reorder.
+  const sorted = times.slice().sort((a, b) => a - b);
+  const n = sorted.length;
+  const rank = (t) => {
+    let i = 0;
+    while (i < n && sorted[i] < t) i++;
+    if (i === 0) return 0;
+    if (i >= n) return 1;
+    const prev = sorted[i - 1], next = sorted[i];
+    return (i - 1 + (next === prev ? 0 : (t - prev) / (next - prev))) / Math.max(1, n - 1);
+  };
+  const raw = (t) => COMPRESS_ALPHA * ((t - from) / range) + (1 - COMPRESS_ALPHA) * rank(t);
+  const r0 = raw(from), r1 = raw(to);
+  return { from, to, range, compressed: true, pos: (t) => ((raw(t) - r0) / Math.max(1e-9, r1 - r0)) * 100 };
+}
+
+/** Band width in years, aiming for under ten bands across the rail. */
+function bandUnit(range) {
+  for (const u of [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000]) if (range / u <= 10) return u;
+  return 5000;
+}
+
 function renderChronology(b) {
   const { s, w } = section(b);
   const events = b.events;
   // The axis spans the events we actually have, not the padded search window —
   // otherwise half the rail is empty on a six-month battle.
   const at = (e) => e.year + ((e.month || 1) - 1) / 12 + ((e.day || 1) - 1) / 365;
-  const span = events.map(at);
-  const from = Math.min(...span);
-  const to = Math.max(...span);
-  const pos = (e) => Math.max(0, Math.min(100, ((at(e) - from) / Math.max(0.001, to - from)) * 100));
+  const times = events.map(at);
+  const scale = chronoScale(times);
+  const { from, to } = scale;
+  const pos = (e) => Math.max(0, Math.min(100, scale.pos(at(e))));
 
-  const rail = el('div', 'chrono-rail');
+  const rail = el('div', `chrono-rail${scale.compressed ? ' banded' : ''}`);
+
+  if (scale.compressed) {
+    // Equal spans of time, drawn unequal. The bands *are* the disclosure: a
+    // reader can see the last two centuries taking half the rail.
+    const unit = bandUnit(scale.range);
+    let i = 0;
+    for (let y = Math.floor(from / unit) * unit; y < to; y += unit, i++) {
+      const a = Math.max(0, scale.pos(Math.max(y, from)));
+      const z = Math.min(100, scale.pos(Math.min(y + unit, to)));
+      if (z - a < 0.05) continue;
+      const band = el('div', `chrono-band${i % 2 ? ' alt' : ''}${z - a < 7 ? ' tight' : ''}`);
+      band.style.left = `${a}%`;
+      band.style.width = `${z - a}%`;
+      band.appendChild(el('span', 'chrono-bandlabel', esc(fmtYear(y))));
+      rail.appendChild(band);
+    }
+  }
+
   rail.appendChild(el('div', 'chrono-axis'));
+
   // Year gridlines when the span is long, month gridlines when it is short.
   const marks = [];
-  if (to - from > 2.5) {
+  if (scale.compressed) {
+    // none: the bands carry the labels, and 2,000 year ticks is not an axis
+  } else if (to - from > 2.5) {
     for (let y = Math.ceil(from); y <= to; y++) marks.push([y, String(y)]);
   } else {
     for (let y = Math.floor(from); y <= Math.ceil(to); y++) {
@@ -507,8 +1113,8 @@ function renderChronology(b) {
   nav.appendChild(prev); nav.appendChild(next);
 
   function label(e) {
-    return e.day ? `${e.day} ${MONTHS[(e.month || 1) - 1]} ${e.year}`
-      : e.month ? `${MONTHS[e.month - 1]} ${e.year}` : String(e.year);
+    return e.day ? `${e.day} ${MONTHS[(e.month || 1) - 1]} ${fmtYear(e.year)}`
+      : e.month ? `${MONTHS[e.month - 1]} ${fmtYear(e.year)}` : fmtYear(e.year);
   }
   function select(i) {
     state.chrono = i;
@@ -523,6 +1129,11 @@ function renderChronology(b) {
   }
 
   w.appendChild(rail);
+  if (scale.compressed) {
+    w.appendChild(el('div', 'chrono-src',
+      `Axis compressed toward the denser periods — the shaded bands are equal ${bandUnit(scale.range)}-year spans, `
+      + `drawn unequal. ${events.length} dated events across ${Math.round(scale.range).toLocaleString()} years.`));
+  }
   w.appendChild(detail);
   w.appendChild(nav);
   select(0);
@@ -704,6 +1315,9 @@ function buildToc(book) {
     <div style="margin-top:6px">Text CC BY-SA 4.0 · <a href="${esc(book.attribution.article)}" target="_blank" rel="noopener">Wikipedia</a></div>`;
 }
 
+// Re-run on every paint: the table of contents and the section nodes both
+// change when the apparatus arrives. The scroll handler is global and is only
+// ever attached once; the observer is rebuilt and the old one disconnected.
 function wireSpine() {
   const bar = document.getElementById('progress');
   const chapters = [...document.querySelectorAll('.chapter')];
@@ -713,9 +1327,13 @@ function wireSpine() {
     const max = document.documentElement.scrollHeight - innerHeight;
     bar.style.width = `${Math.min(100, (scrollY / Math.max(1, max)) * 100)}%`;
   };
-  addEventListener('scroll', onScroll, { passive: true });
+  if (!state.scrollWired) {
+    addEventListener('scroll', onScroll, { passive: true });
+    state.scrollWired = true;
+  }
   onScroll();
 
+  state.spineIO?.disconnect();
   const io = new IntersectionObserver((entries) => {
     for (const e of entries) {
       if (!e.isIntersecting) continue;
@@ -725,6 +1343,7 @@ function wireSpine() {
     }
   }, { rootMargin: '-12% 0px -78% 0px' });
   chapters.forEach((c) => io.observe(c));
+  state.spineIO = io;
 }
 
 // ---- hovercards + note popovers -----------------------------------------

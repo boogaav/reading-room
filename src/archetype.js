@@ -19,12 +19,22 @@ const ARCHETYPE_ROOTS = [
     'Q2001676', // military offensive
     'Q1261499', // siege (via military operation, but pinned for safety)
   ])],
+  // Above `place`, and deliberately so: every country is also a geographic
+  // location, so `place` would swallow all of them. Q6256 was moved out of the
+  // place set for the same reason — the two must not compete.
+  ['country', new Set([
+    'Q6256',    // country
+    'Q3624078', // sovereign state
+    'Q3024240', // historical country
+    'Q1763527', // constituent state
+    'Q7275',    // state
+    'Q43702',   // federation
+  ])],
   ['place', new Set([
     'Q2221906', // geographic location
     'Q486972',  // human settlement
     'Q56061',   // administrative territorial entity
     'Q515',     // city
-    'Q6256',    // country
     'Q82794',   // geographic region
     'Q41176',   // building
   ])],

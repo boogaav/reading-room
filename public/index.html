@@ -23,10 +23,13 @@
   </aside>
 
   <main id="book" class="book">
-    <div class="loading" id="loading">
-      <div class="loading-mark">📖</div>
-      <p id="loadingText">Binding the volume…</p>
-      <p class="loading-sub">Fetching Parsoid HTML, resolving Wikidata entities, laying out plates.</p>
+    <div class="binder" id="binder">
+      <div class="binder-inner">
+        <div class="binder-eyebrow">Binding</div>
+        <h1 class="binder-title" id="binderTitle">a Wikipedia volume</h1>
+        <ol class="binder-stages" id="binderStages"></ol>
+        <p class="binder-foot">Parsoid HTML and Wikidata claims. No language model is involved.</p>
+      </div>
     </div>
   </main>
 
