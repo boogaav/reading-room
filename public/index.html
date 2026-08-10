@@ -16,8 +16,13 @@
   <aside class="rail" id="rail" aria-label="Table of contents">
     <div class="rail-head">
       <a class="rail-home" href="/">Reading&nbsp;Room</a>
-      <button class="rail-toggle" id="railToggle" aria-label="Toggle contents">☰</button>
+      <div class="rail-actions">
+        <button class="lang-btn" id="langBtn" aria-haspopup="listbox" aria-expanded="false"
+                aria-label="Read this article in another language" hidden></button>
+        <button class="rail-toggle" id="railToggle" aria-label="Toggle contents">☰</button>
+      </div>
     </div>
+    <div class="lang-panel" id="langPanel" role="listbox" hidden></div>
     <nav class="toc" id="toc"></nav>
     <div class="rail-foot" id="railFoot"></div>
   </aside>

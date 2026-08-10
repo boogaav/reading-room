@@ -170,6 +170,23 @@ export async function searchTitles(query, lang = 'en', limit = 8) {
   } catch { return []; }
 }
 
+/**
+ * Every language edition that has this article, with that edition's own title
+ * for it — "Japan" is "Japon" in French and "日本" in Japanese, so a language
+ * switcher cannot just swap the hostname and keep the title.
+ */
+export async function fetchLangLinks(title, lang = 'en') {
+  const params = new URLSearchParams({
+    action: 'query', format: 'json', formatversion: '2',
+    prop: 'langlinks', lllimit: '500', llprop: 'autonym|langname',
+    titles: title,
+  });
+  try {
+    const { body } = await fetchCached(`${wp(lang)}/w/api.php?${params}`, { json: true, ttlMs: 864e5 * 7 });
+    return body.query?.pages?.[0]?.langlinks || [];
+  } catch { return []; }
+}
+
 /** Monthly pageviews — the popularity signal that decides what gets precomputed. */
 export async function fetchPageviews(title, lang = 'en', days = 60) {
   const end = new Date();

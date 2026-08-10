@@ -4,7 +4,7 @@ import { join, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { buildBook, inflightTitles, TEMPLATE_VERSION } from './src/book.js';
-import { fetchSummary, searchTitles, withPriority, gateStats } from './src/wiki.js';
+import { fetchSummary, searchTitles, fetchLangLinks, withPriority, gateStats } from './src/wiki.js';
 import { parseWikiInput, looksLikeLangCode, isSupported, languageName } from './src/lang.js';
 import { readdir } from 'node:fs/promises';
 
@@ -145,6 +145,30 @@ const server = createServer(async (req, res) => {
     // What is already bound, and therefore opens instantly. Read off the cache
     // directory rather than a hand-kept list, so the shelf cannot drift.
     if (path === '/api/shelf') return json(res, 200, { books: await shelf() });
+
+    // Which other Wikipedias carry this article. Ordered so the editions whose
+    // section names and date grammar we know come first: those produce a whole
+    // book, the rest produce one without a chronology.
+    if (path === '/api/languages') {
+      const title = url.searchParams.get('title');
+      const lang = url.searchParams.get('lang') || 'en';
+      if (!title) return json(res, 400, { error: 'title required' });
+      const links = await fetchLangLinks(title, lang);
+      const entries = links.map((l) => ({
+        lang: l.lang,
+        autonym: l.autonym || l.lang,
+        name: l.langname || l.lang,
+        title: l.title,
+        supported: isSupported(l.lang),
+        href: readPath(l.lang, l.title),
+      }));
+      entries.sort((a, b) =>
+        (b.supported - a.supported) || a.autonym.localeCompare(b.autonym));
+      return json(res, 200, {
+        current: { lang, title, autonym: languageName(lang), supported: isSupported(lang) },
+        languages: entries,
+      });
+    }
 
     if (path === '/api/engine') {
       return json(res, 200, {

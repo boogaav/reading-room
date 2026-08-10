@@ -1335,10 +1335,120 @@ function buildToc(book) {
     toc.appendChild(a);
   }
 
+  wireLanguages(book);
+
   const foot = document.getElementById('railFoot');
   foot.innerHTML = `<div class="badge">${esc(book.archetype)} template</div>
     <div>${fmt.format(book.stats.words)} words · ${book.stats.chapters} chapters · ${book.stats.notes} notes</div>
     <div style="margin-top:6px">Text CC BY-SA 4.0 · <a href="${esc(book.attribution.article)}" target="_blank" rel="noopener">Wikipedia</a></div>`;
+}
+
+// ---- language switcher ---------------------------------------------------
+//
+// The same subject, read from a different Wikipedia. Not a translation: each
+// edition is its own article, written by different people at different lengths,
+// so switching rebuilds the book from that edition's own text and its own title
+// for the subject — "Japan" is "Japon" in French and "日本" in Japanese.
+
+function wireLanguages(book) {
+  const btn = document.getElementById('langBtn');
+  const panel = document.getElementById('langPanel');
+  if (!btn || state.langWired) return;
+  state.langWired = true;
+
+  btn.textContent = (book.lang || 'en').toUpperCase();
+  btn.hidden = false;
+
+  const close = () => {
+    panel.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+  };
+
+  btn.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    if (!panel.hidden) return close();
+
+    panel.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+
+    if (!state.languages) {
+      panel.innerHTML = '<div class="lang-empty">Looking for other editions…</div>';
+      try {
+        const res = await fetch(
+          `/api/languages?title=${encodeURIComponent(book.title)}&lang=${encodeURIComponent(book.lang || 'en')}`);
+        state.languages = await res.json();
+      } catch {
+        panel.innerHTML = '<div class="lang-empty">Could not reach Wikipedia.</div>';
+        return;
+      }
+    }
+    renderLanguages(panel, state.languages, book);
+  });
+
+  document.addEventListener('click', (ev) => {
+    if (!panel.hidden && !panel.contains(ev.target)) close();
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') close();
+  });
+}
+
+function renderLanguages(panel, data, book) {
+  const list = data.languages || [];
+  if (!list.length) {
+    panel.innerHTML = '<div class="lang-empty">This article exists only on this Wikipedia.</div>';
+    return;
+  }
+
+  const current = el('div', 'lang-current',
+    `<b>${esc(data.current.autonym)}</b><span>reading now</span>`);
+
+  const search = el('input', 'lang-search');
+  search.type = 'search';
+  search.placeholder = `Search ${list.length} editions`;
+  search.setAttribute('aria-label', 'Search languages');
+
+  const rows = el('div', 'lang-rows');
+  const supported = list.filter((l) => l.supported);
+
+  const draw = (items) => {
+    rows.replaceChildren();
+    let markedTail = false;
+    for (const l of items) {
+      // One divider, once, where the fully-supported editions end.
+      if (!l.supported && !markedTail && supported.length && items === list) {
+        rows.appendChild(el('div', 'lang-divider', 'Builds, but without a chronology'));
+        markedTail = true;
+      }
+      const a = el('a', `lang-row${l.supported ? '' : ' partial'}`);
+      a.href = l.href;
+      // The edition's own title for the subject sits under its name — it is
+      // what tells you that Japanese "Japan" is 日本, and that switching is not
+      // a translation of this page but a move to a different article.
+      a.innerHTML =
+        `<span class="lang-code">${esc(l.lang)}</span>` +
+        `<span class="lang-text">` +
+        `<span class="lang-name">${esc(l.autonym)}</span>` +
+        `<span class="lang-title">${esc(l.title)}</span>` +
+        `</span>`;
+      rows.appendChild(a);
+    }
+    if (!items.length) rows.appendChild(el('div', 'lang-empty', 'No edition by that name.'));
+  };
+
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    if (!q) return draw(list);
+    draw(list.filter((l) =>
+      l.autonym.toLowerCase().includes(q)
+      || l.name.toLowerCase().includes(q)
+      || l.lang.startsWith(q)
+      || l.title.toLowerCase().includes(q)));
+  });
+
+  panel.replaceChildren(current, search, rows);
+  draw(list);
+  search.focus();
 }
 
 // Re-run on every paint: the table of contents and the section nodes both

@@ -23,6 +23,12 @@ rulers all come from Wikidata, which is shared across every Wikipedia. Only two 
 are written in the article's own language: the names of its end-matter sections, and the
 way its prose spells a date. Both live in `src/lang.js`.
 
+A switcher in the rail header lists every edition that carries the article — 263 of them
+for Uruguay — with each edition's own title for the subject, because switching is not a
+translation of the page you are on but a move to a different article written by different
+people. Editions whose section names and date grammar are known sort first; the rest are
+labelled as building without a chronology. Backed by `prop=langlinks`.
+
 `en`, `de`, `fr`, `es`, `it`, `pt`, `nl` are known. **Any other language still produces a
 book** — it loses apparatus filtering (reference sections become ordinary chapters) and
 the prose chronology. The home page says so before you open it, rather than quietly
