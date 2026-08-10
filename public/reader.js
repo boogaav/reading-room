@@ -17,6 +17,9 @@ const state = {
   book: null, notes: new Map(), summaries: new Map(), chrono: 0,
   wired: false, spineIO: null, scrollWired: false,
   warmed: new Set(),
+  // Which Wikipedia this book came from. Every link inside a German book stays
+  // on the German Wikipedia, so a reading walk never silently changes language.
+  lang: 'en',
 };
 
 // A reading session is allowed this many speculative builds. Past it we stop
@@ -28,11 +31,31 @@ const WARM_DWELL_MS = 120;
 
 // ---- boot ----------------------------------------------------------------
 
+// Wikipedia language codes are 2–3 letters, optionally with a variant suffix.
+// A first path segment that looks like one is a language; anything else is the
+// start of the title, so /read/Uruguay and /read/de/Uruguay both parse right.
+const LANG_CODE = /^[a-z]{2,3}(-[a-z]{2,8})?$/;
+
+function parseReadPath(pathname = location.pathname) {
+  const m = /^\/read\/(.+)$/.exec(pathname);
+  if (!m) return { lang: 'en', title: 'Battle_of_Stalingrad' };
+  const rest = m[1];
+  const slash = rest.indexOf('/');
+  if (slash > 0) {
+    const head = rest.slice(0, slash);
+    if (LANG_CODE.test(head)) return { lang: head, title: decodeURIComponent(rest.slice(slash + 1)) };
+  }
+  return { lang: 'en', title: decodeURIComponent(rest) };
+}
+
+// Started only once the module's consts above are initialised — `boot` reads
+// LANG_CODE, and a call placed before that declaration dies in the temporal
+// dead zone with no book on screen.
 boot();
 
 async function boot() {
-  const m = /^\/read\/(.+)$/.exec(location.pathname);
-  const title = m ? decodeURIComponent(m[1]) : 'Battle_of_Stalingrad';
+  const { lang, title } = parseReadPath();
+  state.lang = lang;
   const binder = openBinder(title);
 
   try {
@@ -63,7 +86,7 @@ async function boot() {
  * not a progress estimate — see `streamBook` in server.js.
  */
 async function streamBook(title, { onStage, onText, onApparatus }) {
-  const res = await fetch(`/api/book/${encodeURIComponent(title)}?stream=1`);
+  const res = await fetch(`/api/book/${encodeURIComponent(title)}?stream=1&lang=${encodeURIComponent(state.lang || 'en')}`);
   if (!res.ok || !res.body) throw new Error(res.statusText || 'no response');
 
   const reader = res.body.getReader();
@@ -250,7 +273,7 @@ function wireWarming() {
     if (!title || title === state.book?.title) return;
     if (state.warmed.has(title) || state.warmed.size >= WARM_BUDGET) return;
     state.warmed.add(title);
-    fetch(`/api/warm?title=${encodeURIComponent(title)}`, { keepalive: true }).catch(() => {});
+    fetch(`/api/warm?title=${encodeURIComponent(title)}&lang=${encodeURIComponent(state.lang || 'en')}`, { keepalive: true }).catch(() => {});
   };
 
   let dwell = null;
@@ -593,7 +616,10 @@ function renderFacts(b) {
 
 // ---- country: identity ---------------------------------------------------
 
-const bookHref = (title) => `/read/${encodeURIComponent(String(title).replace(/ /g, '_'))}`;
+const bookHref = (title, lang = state.lang || 'en') => {
+  const slug = encodeURIComponent(String(title).replace(/ /g, '_'));
+  return lang === 'en' ? `/read/${slug}` : `/read/${lang}/${slug}`;
+};
 const fmtYear = (y) => (typeof y !== 'number' ? '—' : y < 0 ? `${Math.abs(y)} BC` : String(y));
 const span = (from, to) => (from == null && to == null ? '' : `${fmtYear(from)}–${to == null ? '' : fmtYear(to)}`);
 
@@ -929,7 +955,7 @@ function renderMap(b) {
       });
       marker.bindPopup(
         `<strong>${esc(p.label)}</strong>${p.description ? `<br>${esc(p.description)}` : ''}` +
-        `<br><a href="/read/${encodeURIComponent(p.title.replace(/ /g, '_'))}">Open as a book →</a>`);
+        `<br><a href="${bookHref(p.title)}">Open as a book →</a>`);
       const key = b.layers ? (p.layer || 'subject') : '_';
       if (!groups.has(key)) groups.set(key, L.layerGroup());
       groups.get(key).addLayer(marker);
@@ -1192,7 +1218,7 @@ function renderShelf(b) {
   const row = el('div', 'shelf-row');
   for (const it of b.items) {
     const a = el('a', 'volume');
-    a.href = `/read/${encodeURIComponent(it.title.replace(/ /g, '_'))}`;
+    a.href = bookHref(it.title);
     const art = el('div', 'volume-art');
     if (it.thumb) art.appendChild(Object.assign(new Image(), { src: it.thumb, alt: '', loading: 'lazy' }));
     a.appendChild(art);
@@ -1379,7 +1405,7 @@ function wireHovercards() {
       let data = state.summaries.get(title);
       if (!data) {
         try {
-          const r = await fetch(`/api/summary/${encodeURIComponent(title)}`);
+          const r = await fetch(`/api/summary/${encodeURIComponent(title)}?lang=${encodeURIComponent(state.lang || 'en')}`);
           data = r.ok ? await r.json() : { title: title.replace(/_/g, ' '), extract: 'No summary available.' };
         } catch { data = { title: title.replace(/_/g, ' '), extract: 'Offline.' }; }
         state.summaries.set(title, data);
@@ -1392,7 +1418,7 @@ function wireHovercards() {
            ${data.description ? `<div class="hc-desc">${esc(data.description)}</div>` : ''}
            <div>${esc((data.extract || '').slice(0, 260))}${(data.extract || '').length > 260 ? '…' : ''}</div>
            <div class="hc-actions">
-             <a href="/read/${encodeURIComponent(title.replace(/ /g, '_'))}">Open as a book →</a>
+             <a href="${bookHref(title)}">Open as a book →</a>
            </div>
          </div>`;
       place(card, link);
@@ -1401,7 +1427,7 @@ function wireHovercards() {
 
   document.addEventListener('click', (ev) => {
     const link = ev.target.closest('.wb-link');
-    if (link) { ev.preventDefault(); location.href = `/read/${encodeURIComponent(link.dataset.title.replace(/ /g, '_'))}`; }
+    if (link) { ev.preventDefault(); location.href = bookHref(link.dataset.title); }
   });
   addEventListener('scroll', hide, { passive: true });
 }

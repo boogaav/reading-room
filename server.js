@@ -3,8 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildBook, inflightTitles } from './src/book.js';
-import { fetchSummary, withPriority, gateStats } from './src/wiki.js';
+import { buildBook, inflightTitles, TEMPLATE_VERSION } from './src/book.js';
+import { fetchSummary, searchTitles, withPriority, gateStats } from './src/wiki.js';
+import { parseWikiInput, looksLikeLangCode, isSupported, languageName } from './src/lang.js';
+import { readdir } from 'node:fs/promises';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PUBLIC = join(ROOT, 'public');
@@ -20,6 +22,16 @@ const MIME = {
 };
 
 const DEFAULT_TITLE = 'Battle_of_Stalingrad';
+
+/**
+ * English keeps the short path so every link ever shared stays valid; other
+ * languages get a prefix. `looksLikeLangCode` is what lets the client take the
+ * path apart again without a table of 300 Wikipedias.
+ */
+function readPath(lang, title) {
+  const slug = encodeURIComponent(String(title).replace(/ /g, '_'));
+  return lang === 'en' ? `/read/${slug}` : `/read/${lang}/${slug}`;
+}
 
 // ---- the warming engine --------------------------------------------------
 //
@@ -40,32 +52,33 @@ const warmed = new Set();
 let warmActive = 0;
 const warmStats = { requested: 0, built: 0, dropped: 0, failed: 0 };
 
-function warm(rawTitle) {
+function warm(rawTitle, lang = 'en') {
   const title = String(rawTitle || '').replace(/_/g, ' ').trim();
   if (!title || title.length > 200) return 'rejected';
+  const key = `${lang}:${title}`;
   warmStats.requested++;
-  if (warmed.has(title)) return 'known';
-  if (warmQueue.includes(title)) return 'queued';
+  if (warmed.has(key)) return 'known';
+  if (warmQueue.some((q) => q.key === key)) return 'queued';
   // A reader who hovers faster than we can build is telling us the earlier
   // guesses were wrong, so the newest intent wins and the stalest is dropped.
   if (warmQueue.length >= WARM_MAX_QUEUED) { warmQueue.shift(); warmStats.dropped++; }
-  warmQueue.push(title);
+  warmQueue.push({ key, title, lang });
   pumpWarm();
   return 'queued';
 }
 
 function pumpWarm() {
   while (warmActive < WARM_MAX_INFLIGHT && warmQueue.length) {
-    const title = warmQueue.shift();
+    const { key, title, lang } = warmQueue.shift();
     if (warmed.size > WARM_MEMORY) warmed.clear();
-    warmed.add(title);
+    warmed.add(key);
     warmActive++;
-    withPriority('bg', () => buildBook(title))
+    withPriority('bg', () => buildBook(title, { lang }))
       .then((b) => {
         warmStats.built++;
         console.log(`[warm] ${b.title} · ${b.stats.servedFromCache ? 'cache' : `${b.stats.buildMs}ms`}`);
       })
-      .catch((e) => { warmStats.failed++; console.warn(`[warm] ${title}: ${e.message}`); })
+      .catch((e) => { warmStats.failed++; console.warn(`[warm] ${lang}:${title}: ${e.message}`); })
       .finally(() => { warmActive--; pumpWarm(); });
   }
 }
@@ -75,20 +88,68 @@ const server = createServer(async (req, res) => {
   const path = decodeURIComponent(url.pathname);
 
   try {
-    if (path === '/') return redirect(res, `/read/${DEFAULT_TITLE}`);
+    if (path === '/') return sendFile(res, join(PUBLIC, 'home.html'));
+
+    // Paste anything: a URL from any Wikipedia, or a bare title. Returns where
+    // to go, so the client never has to know how a wiki URL is shaped.
+    if (path === '/api/resolve') {
+      const parsed = parseWikiInput(url.searchParams.get('q'));
+      if (!parsed) return json(res, 400, { error: 'Not a Wikipedia link or an article title.' });
+      try {
+        const s = await fetchSummary(parsed.title, parsed.lang);
+        if (s.type === 'disambiguation') {
+          return json(res, 200, { ok: false, reason: 'disambiguation', ...parsed, title: s.titles?.normalized || parsed.title });
+        }
+        const title = s.titles?.normalized || parsed.title;
+        return json(res, 200, {
+          ok: true,
+          lang: parsed.lang,
+          title,
+          description: s.description || '',
+          extract: s.extract || '',
+          thumbnail: s.thumbnail?.source || null,
+          href: readPath(parsed.lang, title),
+          languageSupported: isSupported(parsed.lang),
+          languageName: languageName(parsed.lang),
+        });
+      } catch (e) {
+        const missing = e.status === 404;
+        return json(res, missing ? 404 : 502, {
+          error: missing
+            ? `No article "${parsed.title}" on ${languageName(parsed.lang)} Wikipedia.`
+            : 'Wikipedia did not answer. Try again in a moment.',
+          ...parsed,
+        });
+      }
+    }
+
+    if (path === '/api/search') {
+      const q = (url.searchParams.get('q') || '').trim();
+      const lang = url.searchParams.get('lang') || 'en';
+      if (q.length < 2) return json(res, 200, { results: [] });
+      const results = await searchTitles(q, lang, 8);
+      return json(res, 200, {
+        results: results.map((r) => ({ ...r, href: readPath(lang, r.title) })),
+      });
+    }
 
     // Intent, not prediction: the client calls this when the reader reaches for
     // something. Returns immediately — the build happens behind the request.
     if (path === '/api/warm') {
       const title = url.searchParams.get('title');
+      const lang = url.searchParams.get('lang') || 'en';
       if (!title) return json(res, 400, { error: 'title required' });
-      return json(res, 202, { title, state: warm(title) });
+      return json(res, 202, { title, lang, state: warm(title, lang) });
     }
+
+    // What is already bound, and therefore opens instantly. Read off the cache
+    // directory rather than a hand-kept list, so the shelf cannot drift.
+    if (path === '/api/shelf') return json(res, 200, { books: await shelf() });
 
     if (path === '/api/engine') {
       return json(res, 200, {
         gate: gateStats(),
-        warm: { ...warmStats, active: warmActive, queued: warmQueue.slice(), remembered: warmed.size },
+        warm: { ...warmStats, active: warmActive, queued: warmQueue.map((q) => q.key), remembered: warmed.size },
         building: inflightTitles(),
       });
     }
@@ -97,18 +158,19 @@ const server = createServer(async (req, res) => {
       const title = path.slice('/api/book/'.length);
       if (!title) return json(res, 400, { error: 'title required' });
       const force = url.searchParams.has('force');
+      const lang = url.searchParams.get('lang') || 'en';
 
-      if (url.searchParams.has('stream')) return streamBook(res, title, force);
+      if (url.searchParams.has('stream')) return streamBook(res, title, force, lang);
 
       const t = Date.now();
-      const book = await buildBook(title, { force });
+      const book = await buildBook(title, { force, lang });
       console.log(`[book] ${book.title} · ${book.archetype} · ${book.stats.servedFromCache ? 'cache' : 'built'} ${Date.now() - t}ms`);
       return json(res, 200, book);
     }
 
     if (path.startsWith('/api/summary/')) {
       const title = path.slice('/api/summary/'.length);
-      const s = await fetchSummary(title);
+      const s = await fetchSummary(title, url.searchParams.get('lang') || 'en');
       return json(res, 200, {
         title: s.titles?.normalized || title,
         extract: s.extract || '',
@@ -119,6 +181,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (path.startsWith('/read/')) return sendFile(res, join(PUBLIC, 'index.html'));
+    if (path === '/read' || path === '/read/') return redirect(res, '/');
 
     return sendFile(res, join(PUBLIC, path === '/' ? 'index.html' : path));
   } catch (err) {
@@ -133,7 +196,7 @@ const server = createServer(async (req, res) => {
  * `partial` frame — cover, spine, notes, chronology — and splices the apparatus
  * in when the second frame lands, so reading starts before the build finishes.
  */
-async function streamBook(res, title, force) {
+async function streamBook(res, title, force, lang = 'en') {
   res.writeHead(200, {
     'content-type': 'application/x-ndjson; charset=utf-8',
     'cache-control': 'no-cache, no-transform',
@@ -147,6 +210,7 @@ async function streamBook(res, title, force) {
   try {
     const book = await buildBook(title, {
       force,
+      lang,
       onEvent: (ev) => {
         if (ev.type === 'stage') return frame(ev);
         if (ev.type === 'partial') { sentText = true; frame({ type: 'text', book: ev.book }); }
@@ -163,6 +227,48 @@ async function streamBook(res, title, force) {
     frame({ type: 'error', error: err.message });
   }
   return res.end();
+}
+
+// ---- the shelf -----------------------------------------------------------
+
+const BOOKS_DIR = join(ROOT, '.cache', 'books');
+let shelfCache = { at: 0, books: [] };
+
+async function shelf() {
+  if (Date.now() - shelfCache.at < 30_000) return shelfCache.books;
+
+  let files = [];
+  try { files = await readdir(BOOKS_DIR); } catch { return []; }
+
+  // Filename is the cache key: <lang>.<Title>.r<revid>.v<template>.json
+  const seen = new Map();
+  for (const f of files) {
+    const m = /^([a-z-]+)\.(.+)\.r(\d+)\.v(\d+)\.json$/.exec(f);
+    if (!m) continue;
+    const [, lang, slug, , version] = m;
+    if (Number(version) !== TEMPLATE_VERSION) continue; // stale template: not instant
+    const key = `${lang}:${slug}`;
+    if (!seen.has(key)) seen.set(key, { lang, title: slug.replace(/_/g, ' ') });
+  }
+
+  const books = await Promise.all([...seen.values()].map(async (b) => {
+    try {
+      const s = await fetchSummary(b.title, b.lang);
+      return {
+        ...b,
+        title: s.titles?.normalized || b.title,
+        description: s.description || '',
+        thumb: s.thumbnail?.source || null,
+        href: readPath(b.lang, s.titles?.normalized || b.title),
+      };
+    } catch {
+      return { ...b, description: '', thumb: null, href: readPath(b.lang, b.title) };
+    }
+  }));
+
+  books.sort((a, b) => a.title.localeCompare(b.title));
+  shelfCache = { at: Date.now(), books };
+  return books;
 }
 
 function json(res, status, body) {

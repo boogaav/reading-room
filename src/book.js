@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  fetchArticleHtml, fetchSummary, fetchEntities, fetchPageviews,
+  fetchArticleHtml, fetchSummary, fetchEntities, fetchPageviews, wp,
   claimTime, claimTimes, claimCoord, claimQuantity, claimIds,
 } from './wiki.js';
 import { extractSource } from './extract/source.js';
@@ -18,7 +18,7 @@ import { extractCountry } from './extract/country.js';
 import { detectArchetype } from './archetype.js';
 import { buildBlocks } from './templates/index.js';
 
-export const TEMPLATE_VERSION = 17;
+export const TEMPLATE_VERSION = 18;
 
 // A country article is Wikipedia's longest form — Japan carries 783 wikilinks
 // against a 140 cap, and the cast, the map and the shelf are all chosen from
@@ -45,8 +45,10 @@ const inflight = new Map();
  *   already-running build is replayed everything it missed, so a click that
  *   lands on an in-flight warm sees the same sequence as one that started it.
  */
-export function buildBook(title, { force = false, onEvent = null } = {}) {
-  const key = `${String(title).replace(/_/g, ' ')}|${force ? 1 : 0}`;
+export function buildBook(title, { force = false, onEvent = null, lang = 'en' } = {}) {
+  // Language is part of the identity of a build: de:Uruguay and en:Uruguay are
+  // different books that happen to share a Wikidata subject.
+  const key = `${lang}:${String(title).replace(/_/g, ' ')}|${force ? 1 : 0}`;
   let entry = inflight.get(key);
 
   if (!entry) {
@@ -57,7 +59,7 @@ export function buildBook(title, { force = false, onEvent = null } = {}) {
       // that other subscribers are still waiting on.
       for (const fn of entry.listeners) { try { fn(ev); } catch { /* ignore */ } }
     };
-    entry.promise = runBuild(title, { force, emit })
+    entry.promise = runBuild(title, { force, emit, lang })
       .finally(() => {
         entry.listeners.clear();
         if (inflight.get(key) === entry) inflight.delete(key);
@@ -77,20 +79,20 @@ export function inflightTitles() {
   return [...inflight.keys()].map((k) => k.split('|')[0]);
 }
 
-async function runBuild(title, { force, emit }) {
+async function runBuild(title, { force, emit, lang = 'en' }) {
   const t0 = Date.now();
   const stage = (name, detail = {}) => emit({ type: 'stage', name, at: Date.now() - t0, ...detail });
 
   stage('fetching', { of: String(title).replace(/_/g, ' ') });
   // Independent endpoints; the summary need not wait on a 5-second Parsoid render.
   const [article, summary] = await Promise.all([
-    fetchArticleHtml(title),
-    fetchSummary(title).catch(() => null),
+    fetchArticleHtml(title, lang),
+    fetchSummary(title, lang).catch(() => null),
   ]);
   const canonical = summary?.titles?.normalized || title.replace(/_/g, ' ');
   stage('revision', { title: canonical, revid: article.revid, cached: article.cached });
 
-  const cacheKey = `${canonical.replace(/[^\w-]+/g, '_')}.r${article.revid}.v${TEMPLATE_VERSION}`;
+  const cacheKey = `${lang}.${canonical.replace(/[^\w-]+/g, '_')}.r${article.revid}.v${TEMPLATE_VERSION}`;
   if (!force) {
     const hit = await readBook(cacheKey);
     if (hit) {
@@ -99,12 +101,12 @@ async function runBuild(title, { force, emit }) {
     }
   }
 
-  const source = extractSource(article.html, { title: canonical });
+  const source = extractSource(article.html, { title: canonical, lang });
   stage('parsed', { chapters: source.chapters.length, notes: source.notes.length, links: source.links.length });
 
   // Subject entity drives archetype selection and the date window.
   const qid = summary?.wikibase_item || null;
-  const subjectEntity = qid ? (await fetchEntities([qid], { props: 'claims|labels|descriptions' }))[qid] : null;
+  const subjectEntity = qid ? (await fetchEntities([qid], { props: 'claims|labels|descriptions', lang }))[qid] : null;
   const { archetype, path: classPath } = subjectEntity
     ? await detectArchetype(subjectEntity)
     : { archetype: 'generic', path: [] };
@@ -113,8 +115,8 @@ async function runBuild(title, { force, emit }) {
   const subject = subjectEntity ? {
     qid,
     title: canonical,
-    label: subjectEntity.labels?.en?.value || canonical,
-    description: subjectEntity.descriptions?.en?.value || summary?.description || '',
+    label: subjectEntity.labels?.[lang]?.value || subjectEntity.labels?.en?.value || canonical,
+    description: subjectEntity.descriptions?.[lang]?.value || subjectEntity.descriptions?.en?.value || summary?.description || '',
     coord: claimCoord(subjectEntity),
     birth: claimTime(subjectEntity, 'P569'),
     death: claimTime(subjectEntity, 'P570'),
@@ -146,6 +148,7 @@ async function runBuild(title, { force, emit }) {
   // A country narrates in bare years and so yields far more dated sentences
   // than a battle does; a tighter cap would thin away most of a national history.
   const chronology = extractChronology(source, window, {
+    lang,
     bareYears: archetype === 'country',
     max: archetype === 'country' ? 110 : 80,
   });
@@ -157,6 +160,7 @@ async function runBuild(title, { force, emit }) {
   const shell = (blocks, extraStats) => ({
     title: canonical,
     slug: canonical.replace(/ /g, '_'),
+    lang,
     archetype,
     classPath,
     revid: article.revid,
@@ -168,9 +172,9 @@ async function runBuild(title, { force, emit }) {
     notes: source.notes,
     figures: source.figures,
     attribution: {
-      article: `https://en.wikipedia.org/wiki/${encodeURIComponent(canonical.replace(/ /g, '_'))}`,
-      revision: article.revid ? `https://en.wikipedia.org/w/index.php?oldid=${article.revid}` : null,
-      history: `https://en.wikipedia.org/w/index.php?title=${encodeURIComponent(canonical.replace(/ /g, '_'))}&action=history`,
+      article: `${wp(lang)}/wiki/${encodeURIComponent(canonical.replace(/ /g, '_'))}`,
+      revision: article.revid ? `${wp(lang)}/w/index.php?oldid=${article.revid}` : null,
+      history: `${wp(lang)}/w/index.php?title=${encodeURIComponent(canonical.replace(/ /g, '_'))}&action=history`,
       textLicense: 'CC BY-SA 4.0',
       textLicenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
       wikidata: qid ? `https://www.wikidata.org/wiki/${qid}` : null,
@@ -207,11 +211,11 @@ async function runBuild(title, { force, emit }) {
   // the country pack's own lineage walk — a dozen round trips either way.
   const limit = ENTITY_LIMIT[archetype] || 140;
   stage('resolving', { links: Math.min(source.links.length, limit) });
-  const entities = await resolveEntities(source.links.map((l) => l.title), { limit });
+  const entities = await resolveEntities(source.links.map((l) => l.title), { limit, lang });
 
   if (archetype === 'country') stage('lineage');
   const country = archetype === 'country'
-    ? await extractCountry(subjectEntity, { title: canonical }).catch((e) => {
+    ? await extractCountry(subjectEntity, { title: canonical, lang }).catch((e) => {
       console.warn('[country] extraction failed:', e.message);
       return null;
     })
@@ -219,7 +223,7 @@ async function runBuild(title, { force, emit }) {
 
   const blocks = buildBlocks(archetype, { ...ctx, entities, country });
   stage('bound', { fromCache: false });
-  const views = await fetchPageviews(canonical).catch(() => null);
+  const views = await fetchPageviews(canonical, lang).catch(() => null);
 
   const book = shell(blocks, {
     phase: 'complete',

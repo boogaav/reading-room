@@ -1,0 +1,173 @@
+/* The hall you walk through before the reading room.
+   Same ink and paper as the books; quieter, because nothing here is the point. */
+
+.home { display: block; }
+
+.hall {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: clamp(56px, 12vh, 132px) 24px 96px;
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ---- masthead ---- */
+.hall-mark {
+  font-family: var(--sans); font-size: 11px; letter-spacing: .24em;
+  text-transform: uppercase; color: var(--paper-faint); margin-bottom: 40px;
+}
+.hall-head h1 {
+  font-size: clamp(2.4rem, 6.4vw, 3.9rem); line-height: 1.05; margin: 0 0 22px;
+  font-weight: 600; letter-spacing: -.025em; text-wrap: balance;
+}
+.hall-sub {
+  font-size: 1.1rem; line-height: 1.6; color: var(--paper-dim);
+  max-width: 34rem; margin: 0 0 44px;
+}
+
+.hall-label {
+  font-family: var(--sans); font-size: 10.5px; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--ember); margin: 0 0 18px; font-weight: 400;
+}
+
+/* ---- the paste field ---- */
+.paste { margin-bottom: 68px; }
+.paste-field {
+  display: flex; gap: 0; align-items: stretch;
+  border: 1px solid var(--rule); background: var(--ink-2);
+  transition: border-color .18s, box-shadow .18s;
+}
+.paste-field:focus-within {
+  border-color: var(--ember-soft);
+  box-shadow: 0 0 0 3px rgba(200, 118, 63, .1);
+}
+.paste-field input {
+  flex: 1; min-width: 0;
+  background: none; border: 0; outline: none;
+  font-family: var(--mono); font-size: 13.5px; color: var(--paper);
+  padding: 17px 18px;
+}
+.paste-field input::placeholder { color: var(--paper-faint); opacity: .7; }
+.paste-field button {
+  flex: 0 0 auto;
+  font-family: var(--sans); font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+  background: none; border: 0; border-left: 1px solid var(--rule);
+  color: var(--ember); padding: 0 26px; cursor: pointer; transition: background .18s;
+}
+.paste-field button:hover:not(:disabled) { background: rgba(200, 118, 63, .1); }
+.paste-field button:disabled { color: var(--paper-faint); cursor: default; }
+
+.paste-hint {
+  font-family: var(--sans); font-size: 11.5px; color: var(--paper-faint);
+  margin: 11px 2px 0; min-height: 1.4em;
+}
+.paste-hint.err { color: #c98b6b; }
+.paste-hint.busy::after {
+  content: ''; display: inline-block; width: 5px; height: 5px; margin-left: 7px;
+  border-radius: 50%; background: var(--ember); animation: blink 1s ease-in-out infinite;
+  vertical-align: middle;
+}
+@keyframes blink { 0%, 100% { opacity: .25 } 50% { opacity: 1 } }
+
+/* ---- results (paste preview + typeahead) ---- */
+.results { margin-top: 14px; border: 1px solid var(--rule-soft); background: var(--ink-2); }
+.result {
+  display: flex; gap: 14px; align-items: center; width: 100%; text-align: left;
+  padding: 13px 15px; background: none; border: 0; cursor: pointer;
+  border-bottom: 1px solid var(--rule-soft); color: inherit; text-decoration: none;
+}
+.result:last-child { border-bottom: 0; }
+.result:hover, .result.on { background: rgba(255, 255, 255, .035); }
+.result-art {
+  flex: 0 0 auto; width: 48px; height: 48px; background: var(--ink-3);
+  border: 1px solid var(--rule-soft); overflow: hidden;
+}
+.result-art img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(.4) brightness(.85); }
+.result-body { min-width: 0; flex: 1; }
+.result-title { font-size: 1rem; line-height: 1.25; }
+.result-desc {
+  font-family: var(--sans); font-size: 10.5px; color: var(--paper-faint);
+  line-height: 1.4; margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.result-lang {
+  flex: 0 0 auto; font-family: var(--sans); font-size: 9.5px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--gold);
+  border: 1px solid var(--rule); border-radius: 999px; padding: 3px 8px;
+}
+.result-go {
+  flex: 0 0 auto; font-family: var(--sans); font-size: 10px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ember);
+}
+
+/* A resolved paste is a bigger, calmer card — it is an answer, not a menu. */
+.result.preview { padding: 18px; gap: 18px; }
+.result.preview .result-art { width: 76px; height: 76px; }
+.result.preview .result-title { font-size: 1.24rem; }
+.result.preview .result-desc { white-space: normal; font-size: 11.5px; }
+
+.result-warn {
+  padding: 11px 15px; font-family: var(--sans); font-size: 11px; line-height: 1.5;
+  color: var(--paper-faint); border-top: 1px solid var(--rule-soft);
+  background: rgba(200, 118, 63, .05);
+}
+
+/* ---- shelf ---- */
+.shelf-section { margin-bottom: 68px; }
+.hall-shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+.hall-volume {
+  display: block; text-decoration: none; color: inherit;
+  border: 1px solid var(--rule-soft); background: var(--ink-2);
+  overflow: hidden; transition: transform .18s, border-color .18s;
+}
+.hall-volume:hover { border-color: var(--ember-soft); transform: translateY(-2px); }
+.hall-volume-art { height: 92px; background: var(--ink-3); overflow: hidden; }
+.hall-volume-art img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(.5) brightness(.72); }
+.hall-volume-body { padding: 10px 12px 13px; }
+.hall-volume-title { font-size: .93rem; line-height: 1.25; }
+.hall-volume-desc {
+  font-family: var(--sans); font-size: 10px; color: var(--paper-faint);
+  line-height: 1.4; margin-top: 4px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hall-volume-lang {
+  font-family: var(--sans); font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--gold); margin-top: 6px;
+}
+
+/* ---- how it works ---- */
+.how { margin-bottom: 60px; }
+.how-steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+.how-steps li {
+  counter-increment: step;
+  position: relative; padding-left: 38px; margin-bottom: 18px;
+  font-size: .98rem; line-height: 1.6; color: var(--paper-dim); max-width: 42rem;
+}
+.how-steps li::before {
+  content: counter(step); position: absolute; left: 0; top: 1px;
+  font-family: var(--mono); font-size: 11px; color: var(--ember);
+  border: 1px solid var(--rule); border-radius: 50%;
+  width: 23px; height: 23px; display: grid; place-items: center;
+}
+.how-steps b { color: var(--paper); font-weight: 500; }
+.how-note {
+  font-family: var(--sans); font-size: 12px; line-height: 1.65; color: var(--paper-faint);
+  border-left: 2px solid var(--ember-soft); padding-left: 16px; margin: 26px 0 0; max-width: 42rem;
+}
+
+.hall-foot {
+  border-top: 1px solid var(--rule-soft); padding-top: 22px;
+  font-family: var(--sans); font-size: 11px; line-height: 1.7; color: var(--paper-faint);
+}
+.hall-foot a { color: var(--paper-dim); }
+.hall-foot a:hover { color: var(--ember); }
+
+@media (max-width: 640px) {
+  .hall { padding-top: 44px; }
+  .paste-field { flex-direction: column; }
+  .paste-field button { border-left: 0; border-top: 1px solid var(--rule); padding: 14px; }
+  .result-go { display: none; }
+}

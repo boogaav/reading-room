@@ -6,7 +6,10 @@
 import { load } from 'cheerio';
 
 // Sections that are apparatus, not narrative. They become end-matter.
-const APPARATUS = /^(references|notes|citations|footnotes|bibliography|sources|external links|further reading|see also|works cited|explanatory notes|general (and cited )?references)$/i;
+// Which sections are end-matter depends on the language the article is written
+// in. An unknown language yields null, and every section stays a chapter — the
+// honest degradation, since a wrong guess would silently delete content.
+import { apparatusRe } from '../lang.js';
 
 // Refs from a template transclusion carry typeof="mw:Transclusion mw:Extension/ref",
 // so an exact attribute match silently misses roughly a seventh of them.
@@ -17,7 +20,8 @@ const noteIdOf = (href) => String(href || '').split('#').pop();
 
 const NAV_JUNK = 'style, script, link, .navbox, .navbox-styles, .metadata, .mbox, .ambox, .hatnote, .mw-editsection, .noprint, .sistersitebox, .side-box, .portal, .mw-empty-elt, .reflist, .mw-references-wrap, .refbegin, .shortdescription, .mw-kartographer-maplink';
 
-export function extractSource(html, { title }) {
+export function extractSource(html, { title, lang = 'en' }) {
+  const APPARATUS = apparatusRe(lang);
   const $ = load(html, null, false);
 
   const notes = extractNotes($);
@@ -45,8 +49,8 @@ export function extractSource(html, { title }) {
     }
     const heading = $sec.children('h1,h2,h3,h4,h5,h6').first();
     const name = cleanText($, heading);
-    if (APPARATUS.test(name)) return;
-    walkSection($, $sec, chapters, links, 1, null);
+    if (APPARATUS?.test(name)) return;
+    walkSection($, $sec, chapters, links, 1, null, APPARATUS);
   });
 
   const figures = [lead, ...chapters].flatMap((c) => c.figures || []);
@@ -64,7 +68,7 @@ export function extractSource(html, { title }) {
 
 // ---- sections ------------------------------------------------------------
 
-function walkSection($, $sec, out, links, level, parentId) {
+function walkSection($, $sec, out, links, level, parentId, APPARATUS) {
   const heading = $sec.children('h1,h2,h3,h4,h5,h6').first();
   const name = cleanText($, heading);
   const id = `ch-${out.length}-${slug(name)}`;
@@ -84,8 +88,8 @@ function walkSection($, $sec, out, links, level, parentId) {
   $sec.children('section').each((_, sub) => {
     const $sub = $(sub);
     const subName = cleanText($, $sub.children('h1,h2,h3,h4,h5,h6').first());
-    if (APPARATUS.test(subName)) return;
-    walkSection($, $sub, out, links, level + 1, id);
+    if (APPARATUS?.test(subName)) return;
+    walkSection($, $sub, out, links, level + 1, id, APPARATUS);
   });
 }
 

@@ -123,29 +123,59 @@ export async function fetchCached(url, { json = false, ttlMs = 1000 * 60 * 60 * 
   return out;
 }
 
-const WP = 'https://en.wikipedia.org';
+/**
+ * Every Wikipedia speaks the same REST API, so a language is a hostname.
+ * Wikidata is shared across all of them, which is why archetypes, coordinates
+ * and dates need no translation.
+ */
+export const wp = (lang = 'en') => `https://${lang}.wikipedia.org`;
+
+/** Wikidata's site key for a Wikipedia: en -> enwiki, de -> dewiki. */
+export const siteOf = (lang = 'en') => `${String(lang).replace(/-/g, '_')}wiki`;
 
 /** Parsoid HTML — semantic sections, typed links, structured refs. */
-export async function fetchArticleHtml(title) {
-  const url = `${WP}/api/rest_v1/page/html/${encodeURIComponent(title)}`;
+export async function fetchArticleHtml(title, lang = 'en') {
+  const url = `${wp(lang)}/api/rest_v1/page/html/${encodeURIComponent(title)}`;
   const { body, headers, cached } = await fetchCached(url);
   // etag looks like: W/"1368051906/71d2bab4-.../view/html" — the leading number is the revid.
   const m = /"(\d+)\//.exec(headers.etag || '');
   return { html: body, revid: m ? Number(m[1]) : null, lastModified: headers['last-modified'], cached };
 }
 
-export async function fetchSummary(title) {
-  const url = `${WP}/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+export async function fetchSummary(title, lang = 'en') {
+  const url = `${wp(lang)}/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
   const { body } = await fetchCached(url, { json: true, ttlMs: 1000 * 60 * 60 * 24 * 7 });
   return body;
 }
 
+/**
+ * Title autocomplete for the home page. Prefix search with thumbnails and
+ * descriptions, so pasting is not the only way in.
+ */
+export async function searchTitles(query, lang = 'en', limit = 8) {
+  const params = new URLSearchParams({
+    action: 'query', format: 'json', formatversion: '2',
+    generator: 'prefixsearch', gpssearch: query, gpslimit: String(limit),
+    prop: 'pageimages|description', piprop: 'thumbnail', pithumbsize: '120', pilimit: String(limit),
+  });
+  try {
+    const { body } = await fetchCached(`${wp(lang)}/w/api.php?${params}`, { json: true, ttlMs: 864e5 });
+    return (body.query?.pages || [])
+      .sort((a, b) => (a.index ?? 99) - (b.index ?? 99))
+      .map((p) => ({
+        title: p.title,
+        description: p.description || '',
+        thumb: p.thumbnail?.source || null,
+      }));
+  } catch { return []; }
+}
+
 /** Monthly pageviews — the popularity signal that decides what gets precomputed. */
-export async function fetchPageviews(title, days = 60) {
+export async function fetchPageviews(title, lang = 'en', days = 60) {
   const end = new Date();
   const start = new Date(end.getTime() - days * 864e5);
   const fmt = (d) => d.toISOString().slice(0, 10).replace(/-/g, '') + '00';
-  const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/${encodeURIComponent(title)}/daily/${fmt(start)}/${fmt(end)}`;
+  const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/${lang}.wikipedia/all-access/user/${encodeURIComponent(title)}/daily/${fmt(start)}/${fmt(end)}`;
   try {
     const { body } = await fetchCached(url, { json: true, ttlMs: 864e5 });
     const items = body.items || [];
@@ -157,7 +187,7 @@ export async function fetchPageviews(title, days = 60) {
  * One batched enwiki query gives us title -> Q-id AND a thumbnail, which is
  * everything we need to turn a wikilink into a card. 50 titles per request.
  */
-export async function fetchPageProps(titles) {
+export async function fetchPageProps(titles, lang = 'en') {
   const uniq = [...new Set(titles)].filter(Boolean);
   const out = {};
   for (let i = 0; i < uniq.length; i += 50) {
@@ -169,7 +199,7 @@ export async function fetchPageProps(titles) {
       titles: batch.join('|'),
     });
     try {
-      const { body } = await fetchCached(`${WP}/w/api.php?${params}`, { json: true });
+      const { body } = await fetchCached(`${wp(lang)}/w/api.php?${params}`, { json: true });
       const redirects = new Map((body.query?.redirects || []).map((r) => [r.to, r.from]));
       for (const page of body.query?.pages || []) {
         if (page.missing) continue;
@@ -183,7 +213,7 @@ export async function fetchPageProps(titles) {
         if (from) out[from] = rec;
       }
     } catch (e) {
-      console.warn('[enwiki] pageprops batch failed:', e.message);
+      console.warn(`[${lang}wiki] pageprops batch failed:`, e.message);
     }
   }
   return out;
@@ -193,17 +223,20 @@ export async function fetchPageProps(titles) {
  * Batched Wikidata entity fetch. Accepts Q-ids or enwiki titles (max 50 per request,
  * which is the API's hard limit).
  */
-export async function fetchEntities(idsOrTitles, { byTitle = false, props = 'claims|labels|descriptions', sitefilter = null } = {}) {
+export async function fetchEntities(idsOrTitles, { byTitle = false, props = 'claims|labels|descriptions', sitefilter = null, lang = 'en' } = {}) {
   const uniq = [...new Set(idsOrTitles)].filter(Boolean);
   const out = {};
   for (let i = 0; i < uniq.length; i += 50) {
     const batch = uniq.slice(i, i + 50);
     const params = new URLSearchParams({
-      action: 'wbgetentities', format: 'json', props, languages: 'en',
+      // Ask for the article's language first, English second: labels fall back
+      // cleanly and a German book gets German names for its entities.
+      action: 'wbgetentities', format: 'json', props,
+      languages: lang === 'en' ? 'en' : `${lang}|en`,
     });
     // Asking for sitelinks without a filter returns ~300 languages per entity.
     if (sitefilter) params.set('sitefilter', sitefilter);
-    if (byTitle) { params.set('sites', 'enwiki'); params.set('titles', batch.join('|')); }
+    if (byTitle) { params.set('sites', siteOf(lang)); params.set('titles', batch.join('|')); }
     else { params.set('ids', batch.join('|')); }
     const url = `https://www.wikidata.org/w/api.php?${params}`;
     try {

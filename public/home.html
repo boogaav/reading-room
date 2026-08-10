@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reading Room — any Wikipedia article, as a book</title>
+<meta name="description" content="Paste a Wikipedia link and read it as an interactive book. Deterministic — no language model involved.">
+<link rel="stylesheet" href="/reader.css">
+<link rel="stylesheet" href="/home.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+</head>
+<body class="home">
+  <main class="hall">
+    <header class="hall-head">
+      <div class="hall-mark">Reading&nbsp;Room</div>
+      <h1>Any Wikipedia article,<br>as a book.</h1>
+      <p class="hall-sub">
+        Paste a link. The article's own structure becomes chapters, its infobox becomes
+        apparatus, its links become a shelf of adjacent volumes.
+      </p>
+    </header>
+
+    <form class="paste" id="pasteForm" autocomplete="off">
+      <div class="paste-field">
+        <label class="sr-only" for="q">Wikipedia link or article title</label>
+        <input
+          id="q" name="q" type="text" spellcheck="false"
+          placeholder="https://en.wikipedia.org/wiki/Battle_of_Stalingrad"
+          aria-describedby="pasteHint">
+        <button type="submit" id="go">Bind</button>
+      </div>
+      <p class="paste-hint" id="pasteHint">Any language. Or just type a title.</p>
+      <div class="results" id="results" hidden></div>
+    </form>
+
+    <section class="shelf-section" id="shelfSection" hidden>
+      <h2 class="hall-label">Already bound — opens instantly</h2>
+      <div class="hall-shelf" id="shelf"></div>
+    </section>
+
+    <section class="how">
+      <h2 class="hall-label">How it works</h2>
+      <ol class="how-steps">
+        <li>
+          <b>Parsoid HTML</b> gives the skeleton — real sections, typed wikilinks,
+          structured references. Chapters are parsed, not guessed.
+        </li>
+        <li>
+          <b>Wikidata</b> gives the rest — what the subject <i>is</i>, where it sits,
+          when it happened, who was involved. That is what selects the template.
+        </li>
+        <li>
+          <b>A template pack</b> per archetype decides the apparatus. A battle gets an
+          order of battle and a casualty scale; a country gets a chain of predecessor
+          states; a person gets a contemporaries axis.
+        </li>
+      </ol>
+      <p class="how-note">
+        No language model is involved at any point. Nothing here is generated — the prose
+        is Wikipedia's, reorganised and never rewritten, and every book carries its
+        revision, licence and author history.
+      </p>
+    </section>
+
+    <footer class="hall-foot">
+      Text from Wikipedia, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>.
+      Media files carry their own licences on Wikimedia Commons.
+      <a href="https://github.com/boogaav/reading-room" target="_blank" rel="noopener">Source</a>.
+    </footer>
+  </main>
+
+  <script type="module" src="/home.js"></script>
+</body>
+</html>

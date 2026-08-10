@@ -5,10 +5,28 @@ anywhere in this pipeline** — every block on the page is a deterministic trans
 Parsoid HTML and Wikidata claims.
 
 ```bash
-node server.js          # http://localhost:5208/read/Battle_of_Stalingrad
+npm start               # http://localhost:5208
 ```
 
-Any article works: `/read/<Article_Title>`.
+The home page takes a pasted Wikipedia link — from any language edition — or a typed
+title with autocomplete. Direct routes work too:
+
+| Route | |
+|---|---|
+| `/read/<Title>` | English |
+| `/read/<lang>/<Title>` | any other Wikipedia, e.g. `/read/de/Uruguay` |
+
+## Languages
+
+Almost nothing here is language-bound. Archetypes, coordinates, dates, populations and
+rulers all come from Wikidata, which is shared across every Wikipedia. Only two things
+are written in the article's own language: the names of its end-matter sections, and the
+way its prose spells a date. Both live in `src/lang.js`.
+
+`en`, `de`, `fr`, `es`, `it`, `pt`, `nl` are known. **Any other language still produces a
+book** — it loses apparatus filtering (reference sections become ordinary chapters) and
+the prose chronology. The home page says so before you open it, rather than quietly
+serving a thinner book. Adding a language is one object literal.
 
 ## The v0 question
 

@@ -6,14 +6,7 @@
 // We clamp to the subject's own date window so "World War II" mentions in a
 // Background section don't drag the axis out to 1914.
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
-  'August', 'September', 'October', 'November', 'December'];
-const MONTH_IDX = new Map(MONTHS.map((m, i) => [m.toLowerCase(), i + 1]));
-const M = MONTHS.join('|');
-
-const RE_DMY = new RegExp(`\\b(\\d{1,2})\\s+(${M})\\s+(\\d{3,4})\\b`, 'gi');
-const RE_MDY = new RegExp(`\\b(${M})\\s+(\\d{1,2}),\\s*(\\d{3,4})\\b`, 'gi');
-const RE_MY = new RegExp(`\\b(${M})\\s+(\\d{3,4})\\b`, 'gi');
+import { langConfig } from '../lang.js';
 
 // Bare years, opt-in. A battle is narrated in days and a life in months, so for
 // those this pattern is all noise; a national history is narrated in years
@@ -35,7 +28,29 @@ const RE_YEAR3 = /\b(?:in|by|since|until|from|around|circa|c\.|AD|during)\s+(\d{
  * @param {{from:number,to:number}|null} window inclusive year window
  * @param {{max?:number, bareYears?:boolean}} opts
  */
-export function extractChronology(source, window, { max = 80, bareYears = false } = {}) {
+/**
+ * Build the date grammar for a language. German writes "1. Januar 1942", English
+ * "1 January 1942" or "January 1, 1942"; the ordinal dot and the comma are the
+ * only real differences. A language whose months we do not know returns null,
+ * and the caller emits no chronology rather than a guessed one.
+ */
+function grammarFor(lang) {
+  const cfg = langConfig(lang);
+  if (!cfg.months) return null;
+  const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const M = cfg.months.map(esc).join('|');
+  const idx = new Map(cfg.months.map((m, i) => [m.toLowerCase(), i + 1]));
+  const patterns = [];
+  // "1. Januar 1942" / "17 July 1942" — the dot is optional so both forms hit.
+  if (cfg.dayFirst) patterns.push([new RegExp(`\\b(\\d{1,2})\\.?\\s+(${M})\\s+(\\d{3,4})\\b`, 'gi'), 'dmy']);
+  if (cfg.monthFirst) patterns.push([new RegExp(`\\b(${M})\\s+(\\d{1,2}),\\s*(\\d{3,4})\\b`, 'gi'), 'mdy']);
+  patterns.push([new RegExp(`\\b(${M})\\s+(\\d{3,4})\\b`, 'gi'), 'my']);
+  return { patterns, idx, months: cfg.months };
+}
+
+export function extractChronology(source, window, { max = 80, bareYears = false, lang = 'en' } = {}) {
+  const grammar = grammarFor(lang);
+  if (!grammar) return [];
   const found = new Map(); // key -> event
 
   const chunks = [{ id: 'lead', title: 'Opening', text: source.lead.text },
@@ -46,7 +61,7 @@ export function extractChronology(source, window, { max = 80, bareYears = false 
     if (!text) continue;
     const hits = [];
 
-    const patterns = [[RE_DMY, 'dmy'], [RE_MDY, 'mdy'], [RE_MY, 'my']];
+    const patterns = grammar.patterns.slice();
     if (bareYears) patterns.push([RE_BC, 'bc'], [RE_YEAR, 'y'], [RE_YEAR3, 'y']);
 
     for (const [re, order] of patterns) {
@@ -54,9 +69,9 @@ export function extractChronology(source, window, { max = 80, bareYears = false 
       let m;
       while ((m = re.exec(text))) {
         let y, mo, d;
-        if (order === 'dmy') { d = +m[1]; mo = MONTH_IDX.get(m[2].toLowerCase()); y = +m[3]; }
-        else if (order === 'mdy') { mo = MONTH_IDX.get(m[1].toLowerCase()); d = +m[2]; y = +m[3]; }
-        else if (order === 'my') { mo = MONTH_IDX.get(m[1].toLowerCase()); d = null; y = +m[2]; }
+        if (order === 'dmy') { d = +m[1]; mo = grammar.idx.get(m[2].toLowerCase()); y = +m[3]; }
+        else if (order === 'mdy') { mo = grammar.idx.get(m[1].toLowerCase()); d = +m[2]; y = +m[3]; }
+        else if (order === 'my') { mo = grammar.idx.get(m[1].toLowerCase()); d = null; y = +m[2]; }
         else if (order === 'bc') { mo = null; d = null; y = -Math.abs(+m[1]); }
         else { mo = null; d = null; y = +m[1]; }
         if (!y || y > 2200) continue;

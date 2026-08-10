@@ -11,7 +11,7 @@
 // shown verbatim or dropped loudly (see `truncated` / `dropped` counters).
 import {
   fetchEntities, fetchPageProps, claimStatements, claimIds, claimValues,
-  claimTime, claimTimes, claimCoord, commonsThumb,
+  claimTime, claimTimes, claimCoord, commonsThumb, siteOf,
   qualifierTime, qualifierId, byRank,
 } from '../wiki.js';
 import { datedSeries } from './series.js';
@@ -48,11 +48,12 @@ const FOUNDING_OF = ['P4649', 'P805', 'P1478'];
  * @param {object} subject  the subject's Wikidata entity (claims|labels|descriptions)
  * @returns {Promise<object>} the `country` slice of the template context
  */
-export async function extractCountry(subject, { title = null } = {}) {
+export async function extractCountry(subject, { title = null, lang = 'en' } = {}) {
+  const SITE = siteOf(lang);
   if (!subject) return null;
   const qid = subject.id || null;
 
-  const lineage = await buildLineage(subject, qid);
+  const lineage = await buildLineage(subject, qid, lang);
 
   // One batched round for everything that is a bare Q-id reference.
   const identityIds = [
@@ -89,10 +90,10 @@ export async function extractCountry(subject, { title = null } = {}) {
     ...foundings.flatMap((f) => FOUNDING_OF.map((p) => qualifierId(f.statement, p))).filter(Boolean),
   ])].filter((id) => id !== qid);
 
-  const refs = await fetchEntities(lookupIds, { props: ENTITY_PROPS, sitefilter: 'enwiki' });
+  const refs = await fetchEntities(lookupIds, { props: ENTITY_PROPS, sitefilter: SITE, lang });
   // A city-state is its own capital (Singapore's P36 is Q334). Self-reference is
   // not a parse miss, so resolve it against the subject rather than dropping it.
-  if (qid) refs[qid] = title ? { ...subject, sitelinks: { enwiki: { title } } } : subject;
+  if (qid) refs[qid] = title ? { ...subject, sitelinks: { [SITE]: { title } } } : subject;
 
   // What the subdivisions *are* is itself a claim: Japan's 47 are P31 "prefecture
   // of Japan". Name the layer from the data rather than calling everything
@@ -106,7 +107,7 @@ export async function extractCountry(subject, { title = null } = {}) {
     ...rulerStatements.map((s) => enTitle(refs[s.value?.id])),
     ...(lineage?.nodes || []).map((n) => n.title),
   ].filter(Boolean);
-  const thumbs = portraitTitles.length ? await fetchPageProps(portraitTitles) : {};
+  const thumbs = portraitTitles.length ? await fetchPageProps(portraitTitles, lang) : {};
   for (const n of lineage?.nodes || []) {
     if (n.title && thumbs[n.title]?.thumb) n.thumb = thumbs[n.title].thumb;
   }
@@ -115,33 +116,33 @@ export async function extractCountry(subject, { title = null } = {}) {
     qid,
     foundings: foundings
       .map((f) => {
-        const named = FOUNDING_OF.map((p) => refs[qualifierId(f.statement, p)]).find((e) => e && labelOf(e));
+        const named = FOUNDING_OF.map((p) => refs[qualifierId(f.statement, p)]).find((e) => e && labelOf(e, lang));
         return {
           year: f.year, month: f.month, day: f.day,
           rank: f.statement.rank,
-          of: labelOf(named) || null,
+          of: labelOf(named, lang) || null,
           ofTitle: enTitle(named) || null,
         };
       })
       .sort((a, b) => a.year - b.year),
     dissolution: claimTime(subject, 'P576'),
 
-    identity: buildIdentity(subject, refs, capitalStatements),
+    identity: buildIdentity(subject, refs, capitalStatements, lang),
     lineage,
     // The criterion is what makes a series comparable with itself. Name it, and
     // say how many statements it cost, rather than quietly plotting a subset.
     series: Object.fromEntries(Object.entries(series).map(([k, s]) => [k, s && {
       ...s,
-      criterionLabel: (s.criterion || '').split('/').map((id) => labelOf(refs[id])).filter(Boolean).join(', ') || null,
+      criterionLabel: (s.criterion || '').split('/').map((id) => labelOf(refs[id], lang)).filter(Boolean).join(', ') || null,
     }])),
-    rulers: buildRulers(rulerStatements, refs, thumbs),
-    territory: buildTerritory(subject, refs, neighbourIds, subdivisionIds, subTypes, subTypeIds),
+    rulers: buildRulers(rulerStatements, refs, thumbs, lang),
+    territory: buildTerritory(subject, refs, neighbourIds, subdivisionIds, subTypes, subTypeIds, lang),
   };
 }
 
 // ---- identity ------------------------------------------------------------
 
-function buildIdentity(subject, refs, capitalStatements) {
+function buildIdentity(subject, refs, capitalStatements, lang = 'en') {
   const flag = pickDated(claimStatements(subject, 'P41'));
   const arms = pickDated(claimStatements(subject, 'P94'));
 
@@ -149,7 +150,7 @@ function buildIdentity(subject, refs, capitalStatements) {
   // one is the undated/preferred statement; the rest are a real finding.
   const capitals = capitalStatements
     .map((s) => ({
-      label: labelOf(refs[s.value?.id]),
+      label: labelOf(refs[s.value?.id], lang),
       title: enTitle(refs[s.value?.id]),
       from: qualifierTime(s, 'P580')?.year ?? null,
       to: qualifierTime(s, 'P582')?.year ?? null,
@@ -173,9 +174,9 @@ function buildIdentity(subject, refs, capitalStatements) {
     capital: current,
     formerCapitals: former,
     rows: [
-      labelRow('Motto', mottoOf(subject, refs)),
+      labelRow('Motto', mottoOf(subject, refs, lang)),
       labelRow('Anthem', labelOf(refs[claimIds(subject, 'P85')[0]])),
-      labelRow('Official language', claimIds(subject, 'P37').map((id) => labelOf(refs[id])).filter(Boolean).slice(0, 4).join(' · ')),
+      labelRow('Official language', claimIds(subject, 'P37').map((id) => labelOf(refs[id], lang)).filter(Boolean).slice(0, 4).join(' · ')),
       labelRow('Currency', labelOf(refs[claimIds(subject, 'P38')[0]])),
       labelRow('Government', labelOf(refs[claimIds(subject, 'P122')[0]])),
       labelRow('Calling code', claimValues(subject, 'P474')[0] || null),
@@ -185,10 +186,10 @@ function buildIdentity(subject, refs, capitalStatements) {
 }
 
 /** A motto is either an item reference or a monolingual string. Accept both. */
-function mottoOf(subject, refs) {
+function mottoOf(subject, refs, lang = 'en') {
   const v = claimValues(subject, 'P1546')[0];
   if (!v) return null;
-  if (v.id) return labelOf(refs[v.id]);
+  if (v.id) return labelOf(refs[v.id], lang);
   return typeof v === 'string' ? v : v.text || null;
 }
 
@@ -211,9 +212,9 @@ function pickDated(statements) {
  * signed: negative is earlier, positive is later, so the renderer can lay the
  * whole thing out as one left-to-right chain without a graph library.
  */
-async function buildLineage(subject, qid) {
+async function buildLineage(subject, qid, lang = 'en') {
   if (!qid) return null;
-  const nodes = new Map([[qid, nodeOf(qid, subject, 0, null)]]);
+  const nodes = new Map([[qid, nodeOf(qid, subject, 0, null, lang)]]);
   const edges = [];
   const truncated = new Map(); // level -> how many we did not show
 
@@ -251,12 +252,12 @@ async function buildLineage(subject, qid) {
       }
       if (!found.length) break;
 
-      const fetched = await fetchEntities(found.map((f) => f.id), { props: ENTITY_PROPS, sitefilter: 'enwiki' });
+      const fetched = await fetchEntities(found.map((f) => f.id), { props: ENTITY_PROPS, sitefilter: siteOf(lang), lang });
       const placed = [];
       for (const f of found) {
         const ent = fetched[f.id];
         if (!ent) continue;
-        nodes.set(f.id, nodeOf(f.id, ent, level, f.verb));
+        nodes.set(f.id, nodeOf(f.id, ent, level, f.verb, lang));
         placed.push({ qid: f.id, entity: ent });
       }
       frontier = placed.slice(0, WALK_ON_FROM);
@@ -276,14 +277,14 @@ async function buildLineage(subject, qid) {
   };
 }
 
-function nodeOf(id, entity, level, via) {
+function nodeOf(id, entity, level, via, lang = 'en') {
   const flag = pickDated(claimStatements(entity, 'P41'));
   const inceptions = claimTimes(entity, 'P571').map((t) => t.year);
   return {
     qid: id,
     level,
     via,
-    label: labelOf(entity) || id,
+    label: labelOf(entity, lang) || id,
     title: enTitle(entity),
     description: entity?.descriptions?.en?.value || '',
     from: inceptions.length ? Math.min(...inceptions) : null,
@@ -311,7 +312,7 @@ const MAX_TENURES = 18;
  * Tenure bars on a shared axis. A tenure with no start date cannot be drawn, so
  * it is separated out and shown as a card rather than silently dropped.
  */
-function buildRulers(statements, refs, thumbs) {
+function buildRulers(statements, refs, thumbs, lang = 'en') {
   const tracks = new Map();
 
   for (const s of statements) {
@@ -322,11 +323,11 @@ function buildRulers(statements, refs, thumbs) {
     const to = qualifierTime(s, 'P582')?.year ?? null;
     const person = {
       qid: s.value.id,
-      label: labelOf(ent) || s.value.id,
+      label: labelOf(ent, lang) || s.value.id,
       title,
       thumb: (title && thumbs[title]?.thumb) || null,
       description: ent.descriptions?.en?.value || '',
-      note: labelOf(refs[qualifierId(s, 'P39')]) || labelOf(refs[qualifierId(s, 'P102')]) || '',
+      note: labelOf(refs[qualifierId(s, 'P39')], lang) || labelOf(refs[qualifierId(s, 'P102')], lang) || '',
       from, to,
       current: from != null && to == null,
     };
@@ -358,14 +359,14 @@ function buildRulers(statements, refs, thumbs) {
 
 // ---- territory -----------------------------------------------------------
 
-function buildTerritory(subject, refs, neighbourIds, subdivisionIds, subTypes, subTypeIds) {
+function buildTerritory(subject, refs, neighbourIds, subdivisionIds, subTypes, subTypeIds, lang = 'en') {
   const pin = (id, layer) => {
     const ent = refs[id];
     const coord = ent && claimCoord(ent);
     if (!coord) return null;
     return {
-      title: enTitle(ent) || labelOf(ent),
-      label: labelOf(ent) || id,
+      title: enTitle(ent) || labelOf(ent, lang),
+      label: labelOf(ent, lang) || id,
       lat: coord.lat, lon: coord.lon,
       description: ent.descriptions?.en?.value || '',
       layer,
@@ -382,7 +383,7 @@ function buildTerritory(subject, refs, neighbourIds, subdivisionIds, subTypes, s
   const GENERIC = /^(country|historical country|sovereign state|state|nation|territory|republic|former administrative territorial entity)$/i;
   const tally = new Map();
   for (const id of subTypeIds) {
-    const l = labelOf(subTypes[id]);
+    const l = labelOf(subTypes[id], lang);
     if (l && !GENERIC.test(l)) tally.set(l, (tally.get(l) || 0) + 1);
   }
   let subdivisionLabel = 'Subdivisions', best = 0;
@@ -408,10 +409,22 @@ function plural(label) {
 
 // ---- helpers -------------------------------------------------------------
 
-function labelOf(entity) {
-  return entity?.labels?.en?.value || null;
+function labelOf(entity, lang = 'en') {
+  const labels = entity?.labels;
+  if (!labels) return null;
+  // The article's own language first, English second — fetchEntities asks for
+  // exactly those two, so a German book gets German names where they exist.
+  return labels[lang]?.value || labels.en?.value || Object.values(labels)[0]?.value || null;
 }
 
+/**
+ * The article title on the wiki this book is being built from. `sitefilter`
+ * narrows each entity to a single sitelink, so whichever key is present is the
+ * right one — no need to know the site code down here.
+ */
 function enTitle(entity) {
-  return entity?.sitelinks?.enwiki?.title || null;
+  const links = entity?.sitelinks;
+  if (!links) return null;
+  const key = Object.keys(links)[0];
+  return key ? links[key].title : null;
 }

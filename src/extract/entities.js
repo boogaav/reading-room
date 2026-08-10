@@ -22,9 +22,9 @@ const UNIT_HINT = new Set([
  * @param {string[]} titles ranked link titles (infobox first, then frequency)
  * @param {number} limit how many we're willing to spend requests on
  */
-export async function resolveEntities(titles, { limit = 140 } = {}) {
+export async function resolveEntities(titles, { limit = 140, lang = 'en' } = {}) {
   const wanted = titles.slice(0, limit);
-  const props = await fetchPageProps(wanted);
+  const props = await fetchPageProps(wanted, lang);
 
   const qids = [];
   const byTitle = new Map();
@@ -35,7 +35,7 @@ export async function resolveEntities(titles, { limit = 140 } = {}) {
     qids.push(p.qid);
   }
 
-  const entities = await fetchEntities(qids, { props: 'claims|labels|descriptions' });
+  const entities = await fetchEntities(qids, { props: 'claims|labels|descriptions', lang });
 
   const resolved = new Map();
   for (const [title, base] of byTitle) {
@@ -46,8 +46,8 @@ export async function resolveEntities(titles, { limit = 140 } = {}) {
     const death = claimTime(ent, 'P570');
     resolved.set(title, {
       ...base,
-      label: ent.labels?.en?.value || base.canonical || title,
-      description: ent.descriptions?.en?.value || '',
+      label: (ent.labels?.[lang]?.value || ent.labels?.en?.value) || base.canonical || title,
+      description: (ent.descriptions?.[lang]?.value || ent.descriptions?.en?.value) || '',
       types,
       isHuman: types.some((t) => HUMAN.has(t)),
       isPlace: !!claimCoord(ent) || types.some((t) => PLACE_HINT.has(t)),
