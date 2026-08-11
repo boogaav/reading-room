@@ -3,7 +3,7 @@
 // Cache key is (title, revid, TEMPLATE_VERSION). Bump TEMPLATE_VERSION and every
 // book rebuilds; a Wikipedia edit rebuilds only that one. That is the whole
 // invalidation story.
-import { mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, appendFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -336,8 +336,50 @@ async function readIndex() {
   return [...newest.values()];
 }
 
+/**
+ * Rebuilds the catalogue by reading the books themselves. Only ever runs when
+ * the index is missing, which is the normal state of a fresh deploy: the image
+ * ships pre-built books but `.cache` is not a build artefact, so without this
+ * the shelf would stand empty until somebody happened to open something.
+ */
+async function healIndex() {
+  let files = [];
+  try { files = await readdir(BOOKS); } catch { return []; }
+  const books = files.filter((f) => f.endsWith('.json') && !f.startsWith('_'));
+  if (!books.length) return [];
+
+  const seen = new Set();
+  const entries = [];
+  for (const f of books) {
+    try {
+      const b = JSON.parse(await readFile(join(BOOKS, f), 'utf8'));
+      if (!b?.title || !b?.lang) continue;
+      const key = `${b.lang}:${b.title}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const cover = b.blocks?.find((x) => x.type === 'cover');
+      // The book carries no build timestamp, so the file's own mtime stands in —
+      // otherwise every healed entry sorts equal and the shelf order is arbitrary.
+      let at = 0;
+      try { at = (await stat(join(BOOKS, f))).mtimeMs; } catch { /* keep 0 */ }
+      entries.push({
+        lang: b.lang, title: b.title, archetype: b.archetype,
+        words: b.stats?.words || 0, chapters: b.stats?.chapters || 0,
+        subtitle: cover?.subtitle || b.subject?.description || '',
+        cover: cover?.image || null,
+        at,
+      });
+    } catch { /* a partial write — skip it */ }
+  }
+  if (entries.length) {
+    writeFile(INDEX, entries.map((e) => JSON.stringify(e)).join('\n') + '\n').catch(() => {});
+  }
+  return entries;
+}
+
 /** Everything bound, newest first. */
 export async function catalogueEntries(limit = 24) {
-  const all = await readIndex();
+  let all = await readIndex();
+  if (!all.length) all = await healIndex();
   return all.sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, limit);
 }
