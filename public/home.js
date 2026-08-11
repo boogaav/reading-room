@@ -5,6 +5,9 @@
 // Anything else is treated as a title and searched, because a reader who knows
 // what they want should not have to go and find the URL first.
 
+import { wireThemeToggle } from '/theme.js';
+import { readHistory } from '/history.js';
+
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -203,30 +206,105 @@ form.addEventListener('submit', (ev) => {
 });
 
 // ---- the shelf -----------------------------------------------------------
+//
+// Two sources, one wall. Books you have opened come from localStorage and stand
+// first; books the server has already bound stand after them, dimmed, because
+// they open instantly but you have not read them yet.
 
-(async function shelf() {
-  let books = [];
+const KINDS = new Set(['battle', 'person', 'country', 'place', 'generic']);
+
+/**
+ * A book's proportions are its own. Thickness follows word count and height
+ * follows chapter count, so the shelf is a physical read on the library: the
+ * fat volume is Stalingrad at 15,900 words, the slim one is a stub.
+ */
+function proportions(b) {
+  const words = b.words || 0;
+  const chapters = b.chapters || 0;
+  // Unbuilt entries have no measurements, so vary them by name instead of
+  // standing a row of identical blanks.
+  const jitter = [...String(b.title)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 97, 7) / 97;
+
+  const w = words
+    ? Math.round(Math.min(62, Math.max(25, 25 + words / 430)))
+    : Math.round(30 + jitter * 16);
+  const h = chapters
+    ? Math.round(Math.min(288, Math.max(212, 212 + chapters * 2.1)))
+    : Math.round(224 + jitter * 46);
+  return { w, h, fw: Math.round(Math.min(196, Math.max(148, h * 0.66))) };
+}
+
+function volume(b, { unread = false } = {}) {
+  const { w, h, fw } = proportions(b);
+  const kind = KINDS.has(b.archetype) ? b.archetype : 'generic';
+
+  const vol = document.createElement('div');
+  vol.className = `vol${unread ? ' unread' : ''}`;
+  vol.dataset.kind = kind;
+  vol.style.setProperty('--w', `${w}px`);
+  vol.style.setProperty('--h', `${h}px`);
+  vol.style.setProperty('--fw', `${fw}px`);
+
+  const a = document.createElement('a');
+  a.className = 'vol-inner';
+  a.href = b.href;
+  a.setAttribute('aria-label', `${b.title} — open as a book`);
+
+  const art = (b.cover || b.thumb)
+    ? `<div class="vol-front-art"><img src="${esc(b.cover || b.thumb)}" alt="" loading="lazy"></div>`
+    : '';
+  const meta = b.words
+    ? `${new Intl.NumberFormat('en-US').format(b.words)} words · ${b.chapters} chapters`
+    : 'bound and waiting';
+
+  a.innerHTML =
+    `<div class="vol-pages"></div>` +
+    `<div class="vol-front">${art}` +
+      `<div class="vol-front-body">` +
+        `<div class="vol-front-kind">${esc(kind)}${b.lang && b.lang !== 'en' ? ' · ' + esc(b.lang) : ''}</div>` +
+        `<div class="vol-front-title">${esc(b.title)}</div>` +
+        (b.subtitle || b.description
+          ? `<div class="vol-front-sub">${esc(b.subtitle || b.description)}</div>` : '') +
+        `<div class="vol-front-meta">${esc(meta)}</div>` +
+      `</div>` +
+    `</div>` +
+    `<div class="vol-spine">` +
+      `<span class="vol-mark"></span>` +
+      `<span class="vol-title">${esc(b.title)}</span>` +
+      `<span class="vol-lang">${esc(b.lang || 'en')}</span>` +
+    `</div>`;
+
+  vol.appendChild(a);
+  return vol;
+}
+
+(async function shelves() {
+  const wall = $('shelves');
+  const mine = readHistory();
+
+  let bound = [];
   try {
     const res = await fetch('/api/shelf');
-    books = (await res.json()).books || [];
-  } catch { return; }
-  if (!books.length) return;
+    bound = (await res.json()).books || [];
+  } catch { /* the shelf still works with history alone */ }
 
-  const wrap = $('shelf');
-  for (const b of books) {
-    const a = document.createElement('a');
-    a.className = 'hall-volume';
-    a.href = b.href;
-    a.innerHTML =
-      `<div class="hall-volume-art">${b.thumb ? `<img src="${esc(b.thumb)}" alt="" loading="lazy">` : ''}</div>` +
-      `<div class="hall-volume-body">` +
-      `<div class="hall-volume-title">${esc(b.title)}</div>` +
-      (b.description ? `<div class="hall-volume-desc">${esc(b.description)}</div>` : '') +
-      (b.lang !== 'en' ? `<div class="hall-volume-lang">${esc(b.lang)}</div>` : '') +
-      `</div>`;
-    wrap.appendChild(a);
+  const seen = new Set(mine.map((b) => `${b.lang || 'en'}:${b.title}`));
+  const unread = bound.filter((b) => !seen.has(`${b.lang || 'en'}:${b.title}`));
+
+  wall.replaceChildren();
+  for (const b of mine) wall.appendChild(volume(b));
+  for (const b of unread) wall.appendChild(volume(b, { unread: true }));
+
+  if (!mine.length && !unread.length) {
+    const empty = document.createElement('p');
+    empty.className = 'shelf-empty';
+    empty.innerHTML =
+      'The shelf is empty. <b>Paste a Wikipedia link above</b> and the article comes back '
+      + 'as a book — chapters from its own sections, apparatus from its infobox, and a shelf '
+      + 'of adjacent volumes from its links. Everything you open stands here afterwards.';
+    wall.appendChild(empty);
   }
-  $('shelfSection').hidden = false;
 })();
 
+wireThemeToggle($('themeBtn'));
 field.focus();

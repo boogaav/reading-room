@@ -1,97 +1,89 @@
-/* The hall you walk through before the reading room.
-   Same ink and paper as the books; quieter, because nothing here is the point. */
+/* The room: a wall of shelves, and the books you have opened standing on them.
+   A book shows its spine, as books on a shelf do. Reach for one and it comes
+   out and turns to face you. */
 
 .home { display: block; }
-
-.hall {
-  max-width: 780px;
-  margin: 0 auto;
-  padding: clamp(56px, 12vh, 132px) 24px 96px;
-}
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-/* ---- masthead ---- */
+/* ---- the bar ------------------------------------------------------------- */
+
+.hall-bar {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: flex-start; gap: 22px;
+  padding: 16px 30px; border-bottom: 1px solid var(--rule-soft);
+  background: color-mix(in srgb, var(--ink) 92%, transparent);
+  backdrop-filter: blur(10px);
+}
 .hall-mark {
+  flex: 0 0 auto; margin-top: 15px;
   font-family: var(--sans); font-size: 11px; letter-spacing: .24em;
-  text-transform: uppercase; color: var(--paper-faint); margin-bottom: 40px;
+  text-transform: uppercase; color: var(--paper-faint); text-decoration: none;
 }
-.hall-head h1 {
-  font-size: clamp(2.4rem, 6.4vw, 3.9rem); line-height: 1.05; margin: 0 0 22px;
-  font-weight: 600; letter-spacing: -.025em; text-wrap: balance;
-}
-.hall-sub {
-  font-size: 1.1rem; line-height: 1.6; color: var(--paper-dim);
-  max-width: 34rem; margin: 0 0 44px;
-}
+.hall-mark:hover { color: var(--ember); }
+.hall-bar .theme-btn { margin-top: 12px; }
 
-.hall-label {
-  font-family: var(--sans); font-size: 10.5px; letter-spacing: .22em;
-  text-transform: uppercase; color: var(--ember); margin: 0 0 18px; font-weight: 400;
-}
+/* ---- the paste field ----------------------------------------------------- */
 
-/* ---- the paste field ---- */
-.paste { margin-bottom: 68px; }
+.paste { flex: 1; min-width: 0; max-width: 620px; margin: 0 auto; position: relative; }
 .paste-field {
-  display: flex; gap: 0; align-items: stretch;
+  display: flex; align-items: stretch;
   border: 1px solid var(--rule); background: var(--ink-2);
   transition: border-color .18s, box-shadow .18s;
 }
 .paste-field:focus-within {
   border-color: var(--ember-soft);
-  box-shadow: 0 0 0 3px rgba(200, 118, 63, .1);
+  box-shadow: 0 0 0 3px var(--ember-wash);
 }
 .paste-field input {
   flex: 1; min-width: 0;
   background: none; border: 0; outline: none;
-  font-family: var(--mono); font-size: 13.5px; color: var(--paper);
-  padding: 17px 18px;
+  font-family: var(--mono); font-size: 13px; color: var(--paper);
+  padding: 13px 15px;
 }
-.paste-field input::placeholder { color: var(--paper-faint); opacity: .7; }
+.paste-field input::placeholder { color: var(--paper-faint); opacity: .75; }
 .paste-field button {
   flex: 0 0 auto;
-  font-family: var(--sans); font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+  font-family: var(--sans); font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase;
   background: none; border: 0; border-left: 1px solid var(--rule);
-  color: var(--ember); padding: 0 26px; cursor: pointer; transition: background .18s;
+  color: var(--ember); padding: 0 22px; cursor: pointer; transition: background .18s;
 }
-.paste-field button:hover:not(:disabled) { background: rgba(200, 118, 63, .1); }
-.paste-field button:disabled { color: var(--paper-faint); cursor: default; }
-
+.paste-field button:hover { background: var(--ember-wash); }
 .paste-hint {
-  font-family: var(--sans); font-size: 11.5px; color: var(--paper-faint);
-  margin: 11px 2px 0; min-height: 1.4em;
+  font-family: var(--sans); font-size: 11px; color: var(--paper-faint);
+  margin: 8px 2px 0; min-height: 1.3em;
 }
-.paste-hint.err { color: #c98b6b; }
+.paste-hint.err { color: var(--ember); }
 .paste-hint.busy::after {
   content: ''; display: inline-block; width: 5px; height: 5px; margin-left: 7px;
-  border-radius: 50%; background: var(--ember); animation: blink 1s ease-in-out infinite;
+  border-radius: 50%; background: var(--ember); animation: pulse 1s ease-in-out infinite;
   vertical-align: middle;
 }
-@keyframes blink { 0%, 100% { opacity: .25 } 50% { opacity: 1 } }
 
-/* ---- results (paste preview + typeahead) ---- */
-.results { margin-top: 14px; border: 1px solid var(--rule-soft); background: var(--ink-2); }
+.results {
+  position: absolute; left: 0; right: 0; top: calc(100% - 18px); z-index: 45;
+  border: 1px solid var(--rule); background: var(--ink-2); box-shadow: var(--shadow-panel);
+}
 .result {
-  display: flex; gap: 14px; align-items: center; width: 100%; text-align: left;
-  padding: 13px 15px; background: none; border: 0; cursor: pointer;
-  border-bottom: 1px solid var(--rule-soft); color: inherit; text-decoration: none;
+  display: flex; gap: 13px; align-items: center; width: 100%; text-align: left;
+  padding: 12px 14px; text-decoration: none; color: inherit;
+  border-bottom: 1px solid var(--rule-soft);
 }
 .result:last-child { border-bottom: 0; }
-.result:hover, .result.on { background: rgba(255, 255, 255, .035); }
+.result:hover, .result.on { background: var(--wash); }
 .result-art {
-  flex: 0 0 auto; width: 48px; height: 48px; background: var(--ink-3);
+  flex: 0 0 auto; width: 44px; height: 44px; background: var(--ink-3);
   border: 1px solid var(--rule-soft); overflow: hidden;
 }
-.result-art img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(.4) brightness(.85); }
+.result-art img { width: 100%; height: 100%; object-fit: cover; filter: var(--img-thumb); }
 .result-body { min-width: 0; flex: 1; }
-.result-title { font-size: 1rem; line-height: 1.25; }
+.result-title { font-size: .98rem; line-height: 1.25; }
 .result-desc {
   font-family: var(--sans); font-size: 10.5px; color: var(--paper-faint);
-  line-height: 1.4; margin-top: 3px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  line-height: 1.4; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .result-lang {
   flex: 0 0 auto; font-family: var(--sans); font-size: 9.5px; letter-spacing: .14em;
@@ -102,72 +94,201 @@
   flex: 0 0 auto; font-family: var(--sans); font-size: 10px; letter-spacing: .16em;
   text-transform: uppercase; color: var(--ember);
 }
-
-/* A resolved paste is a bigger, calmer card — it is an answer, not a menu. */
-.result.preview { padding: 18px; gap: 18px; }
-.result.preview .result-art { width: 76px; height: 76px; }
-.result.preview .result-title { font-size: 1.24rem; }
-.result.preview .result-desc { white-space: normal; font-size: 11.5px; }
-
+.result.preview { padding: 16px 14px; }
+.result.preview .result-art { width: 64px; height: 64px; }
+.result.preview .result-title { font-size: 1.16rem; }
+.result.preview .result-desc { white-space: normal; }
 .result-warn {
-  padding: 11px 15px; font-family: var(--sans); font-size: 11px; line-height: 1.5;
-  color: var(--paper-faint); border-top: 1px solid var(--rule-soft);
-  background: rgba(200, 118, 63, .05);
+  padding: 11px 14px; font-family: var(--sans); font-size: 11px; line-height: 1.5;
+  color: var(--paper-faint); border-top: 1px solid var(--rule-soft); background: var(--ember-wash);
 }
 
-/* ---- shelf ---- */
-.shelf-section { margin-bottom: 68px; }
-.hall-shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
-.hall-volume {
-  display: block; text-decoration: none; color: inherit;
-  border: 1px solid var(--rule-soft); background: var(--ink-2);
-  overflow: hidden; transition: transform .18s, border-color .18s;
+/* ---- the room ------------------------------------------------------------ */
+
+.room { padding: 40px 30px 80px; }
+
+/*
+ * Rows are uniform boxes, which is what lets one repeating gradient draw every
+ * shelf board: each book occupies a cell exactly one row tall and stands on the
+ * board at its foot. No row measurement in JS, no boards drifting out of step.
+ */
+.shelves {
+  --row: 326px;
+  --board: 13px;
+  --shelf-face: color-mix(in srgb, var(--ink-3) 82%, var(--paper) 6%);
+  --shelf-lip: color-mix(in srgb, var(--ink) 70%, #000 30%);
+
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0;
+  perspective: 1700px; perspective-origin: 50% 42%;
+  background:
+    repeating-linear-gradient(180deg,
+      transparent 0,
+      transparent calc(var(--row) - var(--board)),
+      var(--shelf-face) calc(var(--row) - var(--board)),
+      var(--shelf-face) calc(var(--row) - 3px),
+      var(--shelf-lip) calc(var(--row) - 3px),
+      var(--shelf-lip) var(--row));
+  min-height: var(--row);
 }
-.hall-volume:hover { border-color: var(--ember-soft); transform: translateY(-2px); }
-.hall-volume-art { height: 92px; background: var(--ink-3); overflow: hidden; }
-.hall-volume-art img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(.5) brightness(.72); }
-.hall-volume-body { padding: 10px 12px 13px; }
-.hall-volume-title { font-size: .93rem; line-height: 1.25; }
-.hall-volume-desc {
-  font-family: var(--sans); font-size: 10px; color: var(--paper-faint);
-  line-height: 1.4; margin-top: 4px;
+:root[data-theme="light"] .shelves {
+  --shelf-face: color-mix(in srgb, var(--ink-3) 88%, #7a5c33 12%);
+  --shelf-lip: color-mix(in srgb, #7a5c33 40%, var(--ink-3) 60%);
+}
+
+.shelf-loading, .shelf-empty {
+  font-family: var(--sans); font-size: 12.5px; color: var(--paper-faint);
+  padding: 40px 4px; max-width: 40rem; line-height: 1.65;
+}
+.shelf-empty b { color: var(--paper); font-weight: 500; }
+
+/* ---- a volume ------------------------------------------------------------ */
+
+.vol {
+  height: var(--row);
+  display: flex; align-items: flex-end;
+  padding-bottom: var(--board);
+  /* The turned-out book overhangs its neighbours; nothing may clip it. */
+  position: relative;
+}
+.vol + .vol { margin-left: 3px; }
+
+.vol-inner {
+  position: relative;
+  width: var(--w); height: var(--h);
+  transform-style: preserve-3d;
+  /* Hinged at the spine's outer edge — the same edge the front cover swings on,
+     so the book turns about itself instead of sliding sideways. */
+  transform-origin: 100% 50%;
+  transition: transform .52s cubic-bezier(.22, .72, .2, 1);
+  cursor: pointer;
+}
+.vol:hover, .vol:focus-within { z-index: 30; }
+.vol:hover .vol-inner,
+.vol:focus-within .vol-inner {
+  transform: translateZ(96px) rotateY(-66deg);
+}
+
+/* The spine: what you see on a shelf. */
+.vol-spine {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: space-between; gap: 8px;
+  padding: 11px 0 9px;
+  background:
+    linear-gradient(90deg,
+      rgba(0,0,0,.34) 0%, rgba(0,0,0,.05) 16%,
+      rgba(255,255,255,.07) 46%, rgba(0,0,0,.12) 82%, rgba(0,0,0,.4) 100%),
+    var(--hue);
+  border-radius: 1px 2px 2px 1px;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.22);
+  overflow: hidden;
+}
+.vol-spine::before, .vol-spine::after {
+  content: ''; position: absolute; left: 4px; right: 4px; height: 1px;
+  background: var(--gold); opacity: .5;
+}
+.vol-spine::before { top: 26px; }
+.vol-spine::after { bottom: 24px; }
+
+.vol-title {
+  writing-mode: vertical-rl; text-orientation: mixed;
+  font-family: var(--serif); font-size: 13px; line-height: 1.15;
+  color: #f2ead9; letter-spacing: .01em;
+  text-shadow: 0 1px 2px rgba(0,0,0,.5);
+  max-height: calc(var(--h) - 84px);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.vol-lang {
+  font-family: var(--sans); font-size: 8px; letter-spacing: .12em;
+  text-transform: uppercase; color: rgba(255,255,255,.6);
+}
+.vol-mark { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); opacity: .75; }
+
+/* The front cover: hinged on the spine's outer edge, lying back into the shelf
+   until the book is reached for. */
+.vol-front {
+  position: absolute; top: 0; left: 100%;
+  width: var(--fw); height: 100%;
+  transform-origin: 0 50%;
+  transform: rotateY(90deg);
+  background: var(--hue);
+  border-radius: 1px;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
+  overflow: hidden;
+  display: flex; flex-direction: column; justify-content: flex-end;
+}
+.vol-front-art { position: absolute; inset: 0; }
+.vol-front-art img {
+  width: 100%; height: 100%; object-fit: cover;
+  filter: grayscale(.3) contrast(1.05) brightness(.62);
+}
+.vol-front-art::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,.15) 0%, rgba(0,0,0,.5) 55%, rgba(0,0,0,.88) 100%);
+}
+.vol-front-body { position: relative; padding: 14px 14px 16px; }
+.vol-front-kind {
+  font-family: var(--sans); font-size: 8.5px; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--gold); margin-bottom: 6px;
+}
+.vol-front-title {
+  font-family: var(--serif); font-size: 1.02rem; line-height: 1.18; color: #f4ecdd;
+  text-shadow: 0 1px 3px rgba(0,0,0,.6);
+}
+.vol-front-sub {
+  font-family: var(--sans); font-size: 10px; line-height: 1.4; margin-top: 5px;
+  color: rgba(244,236,221,.68);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.hall-volume-lang {
-  font-family: var(--sans); font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
-  color: var(--gold); margin-top: 6px;
+.vol-front-meta {
+  font-family: var(--mono); font-size: 9px; color: rgba(244,236,221,.5); margin-top: 8px;
 }
 
-/* ---- how it works ---- */
-.how { margin-bottom: 60px; }
-.how-steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
-.how-steps li {
-  counter-increment: step;
-  position: relative; padding-left: 38px; margin-bottom: 18px;
-  font-size: .98rem; line-height: 1.6; color: var(--paper-dim); max-width: 42rem;
-}
-.how-steps li::before {
-  content: counter(step); position: absolute; left: 0; top: 1px;
-  font-family: var(--mono); font-size: 11px; color: var(--ember);
-  border: 1px solid var(--rule); border-radius: 50%;
-  width: 23px; height: 23px; display: grid; place-items: center;
-}
-.how-steps b { color: var(--paper); font-weight: 500; }
-.how-note {
-  font-family: var(--sans); font-size: 12px; line-height: 1.65; color: var(--paper-faint);
-  border-left: 2px solid var(--ember-soft); padding-left: 16px; margin: 26px 0 0; max-width: 42rem;
+/* The pages: a sliver of edge, so the book reads as a solid object. */
+.vol-pages {
+  position: absolute; top: 3px; bottom: 3px; left: 100%;
+  width: var(--fw); transform-origin: 0 50%;
+  transform: rotateY(90deg) translateZ(-3px);
+  background: repeating-linear-gradient(90deg, #d9cdb4 0 1px, #c3b799 1px 2px);
+  opacity: .55;
 }
 
-.hall-foot {
-  border-top: 1px solid var(--rule-soft); padding-top: 22px;
-  font-family: var(--sans); font-size: 11px; line-height: 1.7; color: var(--paper-faint);
-}
-.hall-foot a { color: var(--paper-dim); }
-.hall-foot a:hover { color: var(--ember); }
+/* Spine hues by archetype — a shelf you can read at a glance. */
+.vol[data-kind="battle"]  { --hue: linear-gradient(180deg, #5c2320, #3d1614); }
+.vol[data-kind="person"]  { --hue: linear-gradient(180deg, #26384a, #16222e); }
+.vol[data-kind="country"] { --hue: linear-gradient(180deg, #26432f, #16281d); }
+.vol[data-kind="place"]   { --hue: linear-gradient(180deg, #1f4148, #12282d); }
+.vol[data-kind="generic"] { --hue: linear-gradient(180deg, #3d372c, #241f19); }
 
-@media (max-width: 640px) {
-  .hall { padding-top: 44px; }
-  .paste-field { flex-direction: column; }
-  .paste-field button { border-left: 0; border-top: 1px solid var(--rule); padding: 14px; }
-  .result-go { display: none; }
+.vol.unread .vol-spine { opacity: .82; }
+.vol.unread .vol-mark { background: var(--paper-faint); opacity: .5; }
+
+/* ---- colophon ------------------------------------------------------------ */
+
+.colophon-strip {
+  margin-top: 64px; border-top: 1px solid var(--rule-soft); padding-top: 24px;
+  max-width: 52rem;
+}
+.colophon-strip p {
+  font-family: var(--sans); font-size: 12px; line-height: 1.7; color: var(--paper-faint);
+  margin: 0 0 12px;
+}
+.colophon-strip b { color: var(--paper-dim); font-weight: 500; }
+.colophon-legal a { color: var(--paper-dim); }
+.colophon-legal a:hover { color: var(--ember); }
+
+@media (max-width: 860px) {
+  .hall-bar { flex-wrap: wrap; gap: 10px 14px; padding: 12px 18px; }
+  .hall-mark { margin-top: 0; }
+  .paste { order: 3; flex-basis: 100%; max-width: none; }
+  .hall-bar .theme-btn { margin-top: 0; margin-left: auto; }
+  .room { padding: 26px 18px 60px; }
+  .shelves { --row: 268px; perspective: 1100px; }
+  .vol:hover .vol-inner, .vol:focus-within .vol-inner {
+    transform: translateZ(56px) rotateY(-62deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vol-inner { transition: none; }
 }

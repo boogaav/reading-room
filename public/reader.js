@@ -1,3 +1,6 @@
+import { wireThemeToggle, currentTheme } from '/theme.js';
+import { remember } from '/history.js';
+
 // Reading Room — client renderer.
 //
 // One render function per block type. The server decides *which* blocks exist
@@ -68,12 +71,16 @@ async function boot() {
         // Only now, with the spine on screen, does the reader have anything to
         // reach for — so this is the earliest the warming engine can be useful.
         if (book.stats?.phase === 'text') showApparatusNote();
+        else remember(book); // complete in one frame: nothing more is coming
       },
       onApparatus: (blocks, stats) => {
         state.book.blocks = blocks;
         state.book.stats = stats;
         hideApparatusNote();
         paint();
+        // Recorded here rather than on the text frame: the cover image lives in
+        // the apparatus, and a shelf of spines with no covers is a poor shelf.
+        remember(state.book);
       },
     });
   } catch (err) {
@@ -168,6 +175,7 @@ function paint() {
     wireHovercards();
     wireNotes();
     wireWarming();
+    wireThemeToggle(document.getElementById('themeBtn'));
     document.getElementById('railToggle').onclick =
       () => document.getElementById('rail').classList.toggle('open');
     state.wired = true;
@@ -941,10 +949,15 @@ function renderMap(b) {
   // tiles, and this also spares tile requests for readers who never scroll here.
   const init = () => {
     const map = L.map(mount, { scrollWheelZoom: false, attributionControl: true });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    // CARTO ships a matched pair, so the map changes with the room rather than
+    // staying a dark rectangle on a paper page.
+    const tileUrl = (t) =>
+      `https://{s}.basemaps.cartocdn.com/${t === 'light' ? 'light_all' : 'dark_all'}/{z}/{x}/{y}{r}.png`;
+    const tiles = L.tileLayer(tileUrl(currentTheme()), {
       subdomains: 'abcd', maxZoom: 18,
       attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
     }).addTo(map);
+    window.addEventListener('themechange', (ev) => tiles.setUrl(tileUrl(ev.detail.theme)));
 
     const near = [];
     const focus = b.focus || b.points[0];
@@ -1008,12 +1021,30 @@ function renderMap(b) {
     }
   };
 
-  const io = new IntersectionObserver((entries, obs) => {
-    if (!entries.some((e) => e.isIntersecting)) return;
-    obs.disconnect();
+  // Build once, from whichever signal arrives first.
+  let built = false;
+  const build = () => {
+    if (built) return;
+    built = true;
+    io.disconnect();
+    document.removeEventListener('visibilitychange', onVisible);
     requestAnimationFrame(init);
+  };
+
+  const io = new IntersectionObserver((entries) => {
+    if (entries.some((e) => e.isIntersecting)) build();
   }, { rootMargin: '400px' });
   io.observe(shell);
+
+  // A book opened into a background tab lays out in a hidden document, where
+  // browsers suspend IntersectionObserver callbacks — so the map would still be
+  // empty when the reader finally switched to it. Re-check on the way back.
+  function onVisible() {
+    if (document.visibilityState !== 'visible') return;
+    const r = shell.getBoundingClientRect();
+    if (r.top < innerHeight + 400 && r.bottom > -400) build();
+  }
+  document.addEventListener('visibilitychange', onVisible);
 
   return s;
 }

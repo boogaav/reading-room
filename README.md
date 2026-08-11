@@ -34,6 +34,27 @@ book** — it loses apparatus filtering (reference sections become ordinary chap
 the prose chronology. The home page says so before you open it, rather than quietly
 serving a thinner book. Adding a language is one object literal.
 
+## The room
+
+`/` is a bookshelf, not a landing page. Every article you open is remembered in
+`localStorage` and stands there afterwards as a spine — **thickness from word count,
+height from chapter count**, hue from archetype — so the shelf is a physical read on
+what you have collected. Reach for a book and it comes out of the shelf and turns to
+show its front: cover plate, subtitle, and its real measurements. Books the server has
+already bound stand behind yours, dimmed, because they open instantly but are unread.
+
+Reading history never leaves the browser. The server has no account to hang it on and
+does not want one; `/api/shelf` only reports what is in its own cache.
+
+## Ink and paper
+
+Both themes, toggled from the header and remembered, defaulting to the system setting.
+The choice is applied by an inline script before first paint — a deferred module would
+flash the wrong theme. Recurring effects (washes, shadows, scrims, image filters, the
+cover veil) are named tokens rather than literals, so a theme is one block of overrides
+instead of forty scattered edits, and the map swaps between CARTO's dark and light tiles
+with it.
+
 ## The v0 question
 
 The proposal was: build the deterministic layer first, and only then decide whether an

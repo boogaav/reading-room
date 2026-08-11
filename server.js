@@ -3,10 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildBook, inflightTitles, TEMPLATE_VERSION } from './src/book.js';
+import { buildBook, inflightTitles, catalogueEntries } from './src/book.js';
 import { fetchSummary, searchTitles, fetchLangLinks, withPriority, gateStats } from './src/wiki.js';
 import { parseWikiInput, looksLikeLangCode, isSupported, languageName } from './src/lang.js';
-import { readdir } from 'node:fs/promises';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PUBLIC = join(ROOT, 'public');
@@ -255,44 +254,9 @@ async function streamBook(res, title, force, lang = 'en') {
 
 // ---- the shelf -----------------------------------------------------------
 
-const BOOKS_DIR = join(ROOT, '.cache', 'books');
-let shelfCache = { at: 0, books: [] };
-
 async function shelf() {
-  if (Date.now() - shelfCache.at < 30_000) return shelfCache.books;
-
-  let files = [];
-  try { files = await readdir(BOOKS_DIR); } catch { return []; }
-
-  // Filename is the cache key: <lang>.<Title>.r<revid>.v<template>.json
-  const seen = new Map();
-  for (const f of files) {
-    const m = /^([a-z-]+)\.(.+)\.r(\d+)\.v(\d+)\.json$/.exec(f);
-    if (!m) continue;
-    const [, lang, slug, , version] = m;
-    if (Number(version) !== TEMPLATE_VERSION) continue; // stale template: not instant
-    const key = `${lang}:${slug}`;
-    if (!seen.has(key)) seen.set(key, { lang, title: slug.replace(/_/g, ' ') });
-  }
-
-  const books = await Promise.all([...seen.values()].map(async (b) => {
-    try {
-      const s = await fetchSummary(b.title, b.lang);
-      return {
-        ...b,
-        title: s.titles?.normalized || b.title,
-        description: s.description || '',
-        thumb: s.thumbnail?.source || null,
-        href: readPath(b.lang, s.titles?.normalized || b.title),
-      };
-    } catch {
-      return { ...b, description: '', thumb: null, href: readPath(b.lang, b.title) };
-    }
-  }));
-
-  books.sort((a, b) => a.title.localeCompare(b.title));
-  shelfCache = { at: Date.now(), books };
-  return books;
+  const entries = await catalogueEntries(24);
+  return entries.map((b) => ({ ...b, href: readPath(b.lang, b.title) }));
 }
 
 function json(res, status, body) {

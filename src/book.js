@@ -3,7 +3,7 @@
 // Cache key is (title, revid, TEMPLATE_VERSION). Bump TEMPLATE_VERSION and every
 // book rebuilds; a Wikipedia edit rebuilds only that one. That is the whole
 // invalidation story.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -97,6 +97,9 @@ async function runBuild(title, { force, emit, lang = 'en' }) {
     const hit = await readBook(cacheKey);
     if (hit) {
       stage('bound', { fromCache: true });
+      // Catalogue it here too: a book that is only ever served from cache would
+      // otherwise never appear on the shelf, which is exactly backwards.
+      noteInIndex(hit).catch(() => {});
       return { ...hit, stats: { ...hit.stats, servedFromCache: true, buildMs: Date.now() - t0 } };
     }
   }
@@ -270,4 +273,71 @@ async function readBook(key) {
 async function writeBook(key, book) {
   await mkdir(BOOKS, { recursive: true });
   await writeFile(join(BOOKS, key + '.json'), JSON.stringify(book));
+  await noteInIndex(book);
+}
+
+// ---- the index -----------------------------------------------------------
+//
+// A catalogue of what is bound, appended to as each book is written. The cache
+// filenames cannot serve as one: the key slugifies the title, so "Bevölkerung"
+// comes back as "Bev_lkerung", and nothing in a filename says what archetype a
+// book is.
+//
+// Append-only, one JSON object per line. A single shared object rewritten
+// wholesale looked simpler and lost 22 of 23 entries the first time two
+// processes wrote it at once — `node --watch` restarting mid-backfill is enough
+// to trigger it. Appends do not clobber, and readers keep the newest line per
+// book, so concurrent writers cost nothing.
+
+const INDEX = join(BOOKS, '_index.jsonl');
+const INDEX_COMPACT_AT = 400;
+
+async function noteInIndex(book) {
+  const cover = book.blocks?.find((b) => b.type === 'cover');
+  const entry = {
+    lang: book.lang,
+    title: book.title,
+    archetype: book.archetype,
+    words: book.stats?.words || 0,
+    chapters: book.stats?.chapters || 0,
+    subtitle: cover?.subtitle || book.subject?.description || '',
+    cover: cover?.image || null,
+    at: Date.now(),
+  };
+  try {
+    await appendFile(INDEX, JSON.stringify(entry) + '\n');
+  } catch { /* the catalogue is a convenience, never a build failure */ }
+}
+
+async function readIndex() {
+  let raw = '';
+  try { raw = await readFile(INDEX, 'utf8'); } catch { return []; }
+
+  const newest = new Map();
+  let lines = 0;
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    lines++;
+    try {
+      const e = JSON.parse(line);
+      if (!e?.title || !e?.lang) continue;
+      const key = `${e.lang}:${e.title}`;
+      const prev = newest.get(key);
+      if (!prev || (e.at || 0) >= (prev.at || 0)) newest.set(key, e);
+    } catch { /* a torn line from a crash — skip it */ }
+  }
+
+  // Re-reading a book rewrites its line, so the log grows. Fold it down when it
+  // gets long; losing a concurrent append during compaction costs one entry.
+  if (lines > INDEX_COMPACT_AT) {
+    const compact = [...newest.values()].map((e) => JSON.stringify(e)).join('\n') + '\n';
+    writeFile(INDEX, compact).catch(() => {});
+  }
+  return [...newest.values()];
+}
+
+/** Everything bound, newest first. */
+export async function catalogueEntries(limit = 24) {
+  const all = await readIndex();
+  return all.sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, limit);
 }
