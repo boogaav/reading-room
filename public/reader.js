@@ -1,5 +1,6 @@
 import { wireThemeToggle, currentTheme } from '/theme.js';
 import { remember } from '/history.js';
+import { wireVoice, setVoiceLang, stop as stopVoice } from '/voice.js';
 
 // Reading Room — client renderer.
 //
@@ -123,6 +124,7 @@ async function streamBook(title, { onStage, onText, onApparatus }) {
 
 function adopt(book) {
   state.book = book;
+  setVoiceLang(book.lang || 'en');
   state.notes.clear();
   for (const n of book.notes) state.notes.set(n.id, n);
   document.title = `${book.title} — Reading Room`;
@@ -176,6 +178,7 @@ function paint() {
     wireNotes();
     wireWarming();
     wireThemeToggle(document.getElementById('themeBtn'));
+    wireVoice(document.getElementById('voiceBtn'), { collect: collectSpokenBook, lang: state.lang });
     document.getElementById('railToggle').onclick =
       () => document.getElementById('rail').classList.toggle('open');
     state.wired = true;
@@ -1374,6 +1377,51 @@ function buildToc(book) {
     <div style="margin-top:6px">Text CC BY-SA 4.0 · <a href="${esc(book.attribution.article)}" target="_blank" rel="noopener">Wikipedia</a></div>`;
 }
 
+// ---- what gets read aloud ------------------------------------------------
+//
+// The book, not the page: the spine's own prose in reading order, skipping the
+// apparatus. Blocks are charts, maps and tables of numbers — a casualty scale
+// read aloud as a list of figures is noise, and the chronology would repeat
+// sentences the chapters already carry.
+//
+// Collected fresh at play time. The reader repaints when the apparatus lands,
+// so a node list captured earlier would point at replaced elements.
+
+function collectSpokenBook() {
+  const out = [];
+  const book = state.book;
+  if (!book) return out;
+
+  out.push({ text: book.title, label: 'Title', node: document.querySelector('.cover h1') });
+  const sub = book.blocks?.find((b) => b.type === 'cover')?.subtitle;
+  if (sub) out.push({ text: sub, label: 'Title', node: document.querySelector('.cover-sub') });
+
+  for (const chapter of document.querySelectorAll('.chapter')) {
+    const heading = chapter.querySelector('h2');
+    // The lead has no heading of its own — it is labelled by its chapter-num
+    // ("Opening"), and without this fallback its passages show a blank label.
+    const name = heading?.textContent?.trim()
+      || chapter.querySelector('.chapter-num')?.textContent?.trim()
+      || '';
+    if (name) out.push({ text: name, label: name, node: heading });
+
+    for (const el of chapter.querySelectorAll('.prose > p, .prose > ul > li, .prose > ol > li, .prose > blockquote')) {
+      const text = el.textContent.replace(/\s+/g, ' ').trim();
+      // Reference markers read as bare numbers mid-sentence; the note text is
+      // not part of the prose and should not interrupt it.
+      if (text.length > 1) out.push({ text: stripMarkers(el), label: name, node: el });
+    }
+  }
+  return out;
+}
+
+/** The element's text without its superscript reference markers. */
+function stripMarkers(el) {
+  const clone = el.cloneNode(true);
+  clone.querySelectorAll('.wb-note').forEach((n) => n.remove());
+  return clone.textContent.replace(/\s+/g, ' ').trim();
+}
+
 // ---- language switcher ---------------------------------------------------
 //
 // The same subject, read from a different Wikipedia. Not a translation: each
@@ -1568,7 +1616,7 @@ function wireHovercards() {
 
   document.addEventListener('click', (ev) => {
     const link = ev.target.closest('.wb-link');
-    if (link) { ev.preventDefault(); location.href = bookHref(link.dataset.title); }
+    if (link) { ev.preventDefault(); stopVoice(); location.href = bookHref(link.dataset.title); }
   });
   addEventListener('scroll', hide, { passive: true });
 }

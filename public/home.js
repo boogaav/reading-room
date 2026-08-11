@@ -7,6 +7,7 @@
 
 import { wireThemeToggle } from '/theme.js';
 import { readHistory } from '/history.js';
+import { wireVoice } from '/voice.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -306,5 +307,45 @@ function volume(b, { unread = false } = {}) {
   }
 })();
 
+// ---- what gets read aloud ------------------------------------------------
+//
+// There is no prose here to read, so reading the room means taking inventory:
+// what this place is, then the shelf itself — each volume with the things the
+// spine already tells you by its size and colour, said out loud.
+
+function collectSpokenRoom() {
+  const out = [{
+    text: 'Reading Room. Any Wikipedia article, as a book. Paste a link and the '
+        + "article's own sections become chapters, its infobox becomes apparatus, "
+        + 'and its links become a shelf of adjacent volumes.',
+    label: 'The room',
+  }];
+
+  const vols = [...document.querySelectorAll('.vol')];
+  if (!vols.length) {
+    out.push({ text: 'The shelf is empty. Paste a Wikipedia link to bind your first volume.', label: 'Shelf' });
+    return out;
+  }
+
+  out.push({ text: `There are ${vols.length} volumes on the shelf.`, label: 'Shelf' });
+
+  for (const v of vols) {
+    const title = v.querySelector('.vol-front-title')?.textContent?.trim();
+    if (!title) continue;
+    const kind = v.dataset.kind;
+    const sub = v.querySelector('.vol-front-sub')?.textContent?.trim();
+    const meta = v.querySelector('.vol-front-meta')?.textContent?.trim();
+    const unread = v.classList.contains('unread') ? ', not yet read' : '';
+    // The title is the book's own; the description of it is ours. Speaking them
+    // as one passage would force one language on both, so they are separate.
+    const lang = v.querySelector('.vol-lang')?.textContent?.trim() || 'en';
+    out.push({ text: title + '.', label: title, node: v, lang });
+    const about = [sub, `a ${kind}${unread}`, meta].filter(Boolean).join('. ');
+    if (about) out.push({ text: about + '.', label: title, node: v, lang: 'en' });
+  }
+  return out;
+}
+
+wireVoice($('voiceBtn'), { collect: collectSpokenRoom, lang: 'en' });
 wireThemeToggle($('themeBtn'));
 field.focus();

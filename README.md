@@ -55,6 +55,34 @@ cover veil) are named tokens rather than literals, so a theme is one block of ov
 instead of forty scattered edits, and the map swaps between CARTO's dark and light tiles
 with it.
 
+## Reading aloud
+
+A button in the header of every page, using the browser's own speech
+synthesiser — no key, no cost, and nothing leaves the machine.
+
+The reader speaks the book: title, then each chapter's heading and prose in
+order, skipping the apparatus (a casualty scale read as a list of figures is
+noise) and stripping reference markers so numbers do not interrupt sentences.
+The passage being spoken is tinted and scrolled to. The home page takes
+inventory of the shelf instead.
+
+Three things make this harder than calling `speak()` on the page text, and all
+three are handled in `public/voice.js`: long utterances get truncated, so text is
+cut into sentence-sized pieces; Chrome stops after ~15 seconds unless nudged, so
+a watchdog resumes it; and the reader repaints when the apparatus lands, so
+passages are collected at play time rather than held as stale node references.
+
+**Which voice matters far more than any parameter.** macOS ships around fifteen
+novelty voices (Bells, Boing, Zarvox, Trinoids) that are local and match `en`
+perfectly, so a naive "prefer local" rule picks one of them to read a book;
+Chrome's own "Google …" voices are much more natural and are *not* local. Voices
+are therefore ranked — Premium/Enhanced/Neural, then Google, then Siri, then
+Microsoft — with novelties removed, and the control bar lets you pick from what
+your machine actually has. The choice is remembered per language.
+
+Language travels with the passage, not the page: a shelf holding Korean, German
+and Esperanto volumes speaks each title in its own voice.
+
 ## The v0 question
 
 The proposal was: build the deterministic layer first, and only then decide whether an
