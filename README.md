@@ -105,6 +105,27 @@ Ethereum as surely as `P625` means a coordinate. Fourteen chains come out of
 eighty-one entries that way, and the year histogram keeps its silent years so a
 gap reads as a finding rather than a missing column.
 
+### The `catalogue` shape
+
+`/atlas/eips` is the same idea against a source that is not GitHub: 1,194
+Ethereum Improvement Proposals, faceted by where each one stands and what it
+touches.
+
+`eips.ethereum.org` publishes no API, but it publishes the same corpus cut two
+ways — `/all` groups every proposal by status, and `/core`, `/erc`,
+`/networking`, `/interface`, `/meta`, `/informational` group them by category.
+Joining those on the proposal number costs **7 requests instead of 1,194**, and
+the join is exact: every row on `/all` finds a category.
+
+The centrepiece is the status × category matrix, because the pair is the point —
+how far each kind of proposal actually gets. It says something the list does not:
+**Stagnant is the largest status at 402**, ahead of Final at 279, and Core
+proposals are three times likelier to be withdrawn than ERCs.
+
+The number histogram is labelled *number space*, not time. Proposal numbers are
+handed out roughly in order so it reads as a rough timeline, and rough is the
+operative word.
+
 ## The v0 question
 
 The proposal was: build the deterministic layer first, and only then decide whether an

@@ -8,6 +8,7 @@ import { fetchSummary, searchTitles, fetchLangLinks, withPriority, gateStats } f
 import { parseWikiInput, looksLikeLangCode, isSupported, languageName } from './src/lang.js';
 import { buildAtlas } from './src/github/atlas.js';
 import { parseRepoInput } from './src/github/fetch.js';
+import { buildEipAtlas } from './src/eips/catalogue.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PUBLIC = join(ROOT, 'public');
@@ -96,7 +97,18 @@ const server = createServer(async (req, res) => {
     if (path === '/api/resolve') {
       const q = url.searchParams.get('q');
 
-      // GitHub first: a repo URL is unambiguous, and a bare "owner/repo" would
+      // Named atlases, so the corpus is reachable by pasting its own address
+      // rather than by knowing our route for it.
+      if (/^(eips?|https?:\/\/eips\.ethereum\.org.*)$/i.test(String(q || '').trim())) {
+        const a = await buildEipAtlas();
+        return json(res, 200, {
+          ok: true, source: 'eips', kind: 'catalogue', lang: 'en',
+          title: a.title, description: a.description,
+          href: '/atlas/eips', entries: a.stats.count, languageSupported: true,
+        });
+      }
+
+      // GitHub next: a repo URL is unambiguous, and a bare "owner/repo" would
       // otherwise be searched for as an article title.
       const gh = parseRepoInput(q);
       if (gh) {
@@ -156,6 +168,16 @@ const server = createServer(async (req, res) => {
 
     // A repository whose README is a dataset becomes an atlas. Same contract as
     // /api/book: give it a name, get back the built thing.
+    // A named atlas whose source is not GitHub. The corpus is a website that
+    // publishes no API, so the adapter lives in src/eips rather than pretending
+    // to be a repository.
+    if (path === '/api/atlas/eips') {
+      const t = Date.now();
+      const atlas = await buildEipAtlas({ force: url.searchParams.has('force') });
+      console.log(`[atlas] eips · ${atlas.stats.count} proposals · ${atlas.stats.servedFromCache ? 'cache' : 'built'} ${Date.now() - t}ms`);
+      return json(res, 200, atlas);
+    }
+
     if (path.startsWith('/api/atlas/')) {
       const [owner, repo] = path.slice('/api/atlas/'.length).split('/');
       if (!owner || !repo) return json(res, 400, { error: 'owner and repo required' });

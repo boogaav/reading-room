@@ -27,7 +27,8 @@ let items = [];
 // Anything the server can resolve directly rather than search for: a wiki URL,
 // a GitHub URL, or an "owner/repo" pair.
 const looksLikeUrl = (s) => /^(https?:\/\/|[a-z0-9-]+\.(m\.)?wikipedia\.org|github\.com\/)/i.test(s.trim())
-  || /^[\w.-]+\/[\w.-]+$/.test(s.trim());
+  || /^[\w.-]+\/[\w.-]+$/.test(s.trim())
+  || /^eips?$/i.test(s.trim());
 
 // ---- state helpers -------------------------------------------------------
 

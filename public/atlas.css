@@ -96,3 +96,36 @@
   .cadence-year { font-size: 8px; }
   .cadence-num { display: none; }
 }
+
+/* ---- catalogue: status x category ---------------------------------------- */
+
+.matrix { display: grid; gap: 3px; max-width: 52rem; }
+.matrix-corner { }
+.matrix-head, .matrix-row-head {
+  font-family: var(--sans); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--paper-faint); display: flex; align-items: center;
+}
+.matrix-head { justify-content: center; padding-bottom: 4px; }
+.matrix-row-head { padding-right: 8px; }
+.matrix-cell {
+  /* --w is the cell's share of the largest cell, so weight is visible before
+     the number is read. */
+  background: color-mix(in srgb, var(--ember) calc(var(--w) * 82%), var(--ink-3));
+  border: 1px solid var(--rule-soft); border-radius: 2px;
+  color: var(--paper); font-family: var(--mono); font-size: 11px;
+  aspect-ratio: 2.1 / 1; min-height: 30px;
+  display: grid; place-items: center; cursor: pointer; transition: .15s;
+}
+.matrix-cell:hover { border-color: var(--ember); }
+.matrix-cell.on { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-wash); }
+.matrix-cell.zero { background: var(--ink-3); color: transparent; cursor: default; }
+
+.entry-status {
+  font-family: var(--sans); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--paper-faint);
+}
+
+@media (max-width: 860px) {
+  .matrix { font-size: 9px; }
+  .matrix-cell { min-height: 24px; font-size: 9.5px; }
+}
