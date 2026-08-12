@@ -16,6 +16,10 @@ COPY public ./public
 # machine instead of spending ~10s rebuilding them from the Wikimedia APIs.
 # A cache miss (article edited since) just falls through to a live build.
 COPY seed/books/ ./.cache/books/
+# Atlases too: GitHub's unauthenticated API allows 60 requests an hour *per IP*,
+# and a shared Fly egress address is usually already spent, so a demo repo has
+# to travel with the image. Set GITHUB_TOKEN to build arbitrary repos.
+COPY seed/atlases/ ./.cache/atlases/
 
 EXPOSE 8208
 CMD ["node", "server.js"]

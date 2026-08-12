@@ -4,7 +4,7 @@
 // is, and hand a template pack the structure it needs. A repository whose
 // README is a dataset becomes an atlas; anything else becomes a plain reading
 // of the README, which is the honest floor rather than a failure.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { load } from 'cheerio';
@@ -19,7 +19,22 @@ const ATLASES = join(ROOT, '.cache', 'atlases');
 
 export async function buildAtlas(owner, repo, { force = false } = {}) {
   const t0 = Date.now();
-  const meta = await fetchRepo(owner, repo);
+
+  // The cache key needs `pushed_at`, so metadata is fetched before the cache is
+  // consulted — which means a rate-limited GitHub would make even a cached atlas
+  // unreachable. Unauthenticated GitHub allows 60 requests an hour *per IP*, and
+  // a shared host's address is routinely already spent, so falling back to
+  // whatever we have on disk is the difference between working and not.
+  let meta;
+  try {
+    meta = await fetchRepo(owner, repo);
+  } catch (err) {
+    const stale = await newestOnDisk(owner, repo);
+    if (stale) {
+      return { ...stale, stats: { ...stale.stats, servedFromCache: true, stale: true, buildMs: Date.now() - t0 } };
+    }
+    throw err;
+  }
 
   // `pushed_at` changes whenever the repo does, which is exactly the
   // invalidation the book cache gets from a revision id.
@@ -152,6 +167,17 @@ function harden(html) {
 
 function slug(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'section';
+}
+
+/** The most recent atlas we hold for this repo, whatever revision it was built at. */
+async function newestOnDisk(owner, repo) {
+  let files = [];
+  try { files = await readdir(ATLASES); } catch { return null; }
+  const prefix = `${owner}__${repo}.`;
+  const mine = files.filter((f) => f.startsWith(prefix) && f.endsWith('.json')).sort();
+  if (!mine.length) return null;
+  try { return JSON.parse(await readFile(join(ATLASES, mine[mine.length - 1]), 'utf8')); }
+  catch { return null; }
 }
 
 async function readAtlas(key) {
