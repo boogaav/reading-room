@@ -90,8 +90,11 @@ async function writeCache(key, payload) {
  * Fetch a URL with disk + memory caching.
  * Returns { body, headers } where body is text (or a parsed object when json:true).
  */
-export async function fetchCached(url, { json = false, ttlMs = 1000 * 60 * 60 * 24 * 30 } = {}) {
-  const key = keyFor(url);
+export async function fetchCached(url, { json = false, ttlMs = 1000 * 60 * 60 * 24 * 30, headers: extra = null } = {}) {
+  // The Accept header is part of a response's identity, not just its transport:
+  // GitHub returns JSON or rendered HTML from the *same* README URL depending on
+  // it, so keying the cache on the URL alone would serve one as the other.
+  const key = keyFor(extra?.Accept ? `${url}\n${extra.Accept}` : url);
   if (memo.has(key)) return memo.get(key);
 
   const cached = await readCache(key);
@@ -104,7 +107,9 @@ export async function fetchCached(url, { json = false, ttlMs = 1000 * 60 * 60 * 
   const slot = await acquire();
   let res;
   try {
-    res = await fetch(url, { headers: { 'User-Agent': UA, 'Api-User-Agent': UA, 'Accept-Encoding': 'gzip' } });
+    res = await fetch(url, {
+      headers: { 'User-Agent': UA, 'Api-User-Agent': UA, 'Accept-Encoding': 'gzip', ...(extra || {}) },
+    });
   } finally { release(slot); }
 
   if (!res.ok) {

@@ -83,6 +83,28 @@ your machine actually has. The choice is remembered per language.
 Language travels with the passage, not the page: a shelf holding Korean, German
 and Esperanto volumes speaks each title in its own voice.
 
+## Atlases from GitHub
+
+Some repositories are not projects but datasets — a README that is really a
+table. `/atlas/<owner>/<repo>` reads one as an atlas.
+
+The README is fetched **rendered**: GitHub will return its own HTML for a
+markdown file, so footnote markers, tables and autolinks arrive as elements and
+can be parsed with the same discipline Parsoid gets, instead of a markdown
+grammar of our own.
+
+The `ledger` shape is a list of dated incidents, each a line of the same
+sentence. On `pcaversaccio/reentrancy-attacks` all **81 of 81** entries parse.
+Detection requires most of a long list to read cleanly, which is what keeps
+ordinary repositories out of the template; anything else falls back to a plain
+reading of the README.
+
+The chain each incident happened on is never stated in that repo — and does not
+need to be. **The block explorer linked is the chain**: `etherscan.io` means
+Ethereum as surely as `P625` means a coordinate. Fourteen chains come out of
+eighty-one entries that way, and the year histogram keeps its silent years so a
+gap reads as a finding rather than a missing column.
+
 ## The v0 question
 
 The proposal was: build the deterministic layer first, and only then decide whether an

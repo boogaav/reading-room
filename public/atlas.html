@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas — Reading Room</title>
+<script>
+// Applied before first paint: a deferred module would flash the wrong theme.
+(function () {
+  try {
+    var t = localStorage.getItem('readingroom.theme');
+    if (t !== 'light' && t !== 'dark') {
+      t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+    document.documentElement.dataset.theme = t;
+  } catch (e) { document.documentElement.dataset.theme = 'dark'; }
+})();
+</script>
+<link rel="stylesheet" href="/reader.css">
+<link rel="stylesheet" href="/atlas.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
+</head>
+<body>
+  <div class="progress"><div class="progress-fill" id="progress"></div></div>
+
+  <aside class="rail" id="rail" aria-label="Contents">
+    <div class="rail-head">
+      <a class="rail-home" href="/">Reading&nbsp;Room</a>
+      <div class="rail-actions">
+        <button class="voice-btn" id="voiceBtn" aria-pressed="false" hidden></button>
+        <button class="theme-btn" id="themeBtn" aria-pressed="false"></button>
+        <button class="rail-toggle" id="railToggle" aria-label="Toggle contents">☰</button>
+      </div>
+    </div>
+    <nav class="toc" id="toc"></nav>
+    <div class="rail-foot" id="railFoot"></div>
+  </aside>
+
+  <main id="atlas" class="book">
+    <div class="binder" id="binder">
+      <div class="binder-inner">
+        <div class="binder-eyebrow">Surveying</div>
+        <h1 class="binder-title" id="binderTitle">a repository</h1>
+        <p class="binder-foot">GitHub's rendered README. No language model is involved.</p>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="/atlas.js"></script>
+</body>
+</html>

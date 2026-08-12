@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { buildBook, inflightTitles, catalogueEntries } from './src/book.js';
 import { fetchSummary, searchTitles, fetchLangLinks, withPriority, gateStats } from './src/wiki.js';
 import { parseWikiInput, looksLikeLangCode, isSupported, languageName } from './src/lang.js';
+import { buildAtlas } from './src/github/atlas.js';
+import { parseRepoInput } from './src/github/fetch.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PUBLIC = join(ROOT, 'public');
@@ -92,8 +94,38 @@ const server = createServer(async (req, res) => {
     // Paste anything: a URL from any Wikipedia, or a bare title. Returns where
     // to go, so the client never has to know how a wiki URL is shaped.
     if (path === '/api/resolve') {
-      const parsed = parseWikiInput(url.searchParams.get('q'));
-      if (!parsed) return json(res, 400, { error: 'Not a Wikipedia link or an article title.' });
+      const q = url.searchParams.get('q');
+
+      // GitHub first: a repo URL is unambiguous, and a bare "owner/repo" would
+      // otherwise be searched for as an article title.
+      const gh = parseRepoInput(q);
+      if (gh) {
+        try {
+          const atlas = await buildAtlas(gh.owner, gh.repo);
+          return json(res, 200, {
+            ok: true, source: 'github', kind: atlas.kind,
+            lang: 'en',
+            title: atlas.title,
+            description: atlas.description,
+            thumbnail: atlas.avatar,
+            href: `/atlas/${gh.owner}/${gh.repo}`,
+            entries: atlas.stats.entries,
+            languageSupported: true,
+          });
+        } catch (e) {
+          const missing = e.status === 404;
+          // A typed "AC/DC" is a band, not a repository. When the bare form does
+          // not exist on GitHub, fall through and let Wikipedia have it.
+          if (!(missing && gh.form === 'bare')) {
+            return json(res, missing ? 404 : 502, {
+              error: missing ? `No repository ${gh.owner}/${gh.repo}.` : 'GitHub did not answer. Try again in a moment.',
+            });
+          }
+        }
+      }
+
+      const parsed = parseWikiInput(q);
+      if (!parsed) return json(res, 400, { error: 'Not a Wikipedia link, a GitHub repository, or an article title.' });
       try {
         const s = await fetchSummary(parsed.title, parsed.lang);
         if (s.type === 'disambiguation') {
@@ -121,6 +153,19 @@ const server = createServer(async (req, res) => {
         });
       }
     }
+
+    // A repository whose README is a dataset becomes an atlas. Same contract as
+    // /api/book: give it a name, get back the built thing.
+    if (path.startsWith('/api/atlas/')) {
+      const [owner, repo] = path.slice('/api/atlas/'.length).split('/');
+      if (!owner || !repo) return json(res, 400, { error: 'owner and repo required' });
+      const t = Date.now();
+      const atlas = await buildAtlas(owner, repo, { force: url.searchParams.has('force') });
+      console.log(`[atlas] ${atlas.fullName} · ${atlas.kind} · ${atlas.stats.servedFromCache ? 'cache' : 'built'} ${Date.now() - t}ms`);
+      return json(res, 200, atlas);
+    }
+
+    if (path.startsWith('/atlas/')) return sendFile(res, join(PUBLIC, 'atlas.html'));
 
     if (path === '/api/search') {
       const q = (url.searchParams.get('q') || '').trim();

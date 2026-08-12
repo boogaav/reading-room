@@ -18,13 +18,16 @@ const hint = $('pasteHint');
 const results = $('results');
 const goBtn = $('go');
 
-const HINT_IDLE = 'Any language. Or just type a title.';
+const HINT_IDLE = 'Any language. A GitHub repo becomes an atlas.';
 
 let seq = 0;          // guards against a slow response overwriting a newer one
 let active = -1;      // keyboard selection within the results list
 let items = [];
 
-const looksLikeUrl = (s) => /^(https?:\/\/|[a-z0-9-]+\.(m\.)?wikipedia\.org)/i.test(s.trim());
+// Anything the server can resolve directly rather than search for: a wiki URL,
+// a GitHub URL, or an "owner/repo" pair.
+const looksLikeUrl = (s) => /^(https?:\/\/|[a-z0-9-]+\.(m\.)?wikipedia\.org|github\.com\/)/i.test(s.trim())
+  || /^[\w.-]+\/[\w.-]+$/.test(s.trim());
 
 // ---- state helpers -------------------------------------------------------
 
