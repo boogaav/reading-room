@@ -369,3 +369,54 @@
 .paste-aside { font-family: var(--sans); font-size: 11px; color: var(--paper-faint); margin: 4px 2px 0; }
 .paste-aside a { color: var(--paper-dim); }
 .paste-aside a:hover { color: var(--ember); }
+
+/* ---- the library control ------------------------------------------------- */
+
+.hall-bar .lib-btn { margin-top: 12px; flex: 0 0 auto; }
+.hall-bar .lib-btn.on { color: var(--gold); border-color: var(--gold); background: var(--gold-wash); }
+
+.lib-panel {
+  position: absolute; top: 62px; right: 24px; z-index: 60; width: 320px; max-width: calc(100vw - 32px);
+  background: var(--ink-2); border: 1px solid var(--rule); box-shadow: var(--shadow-panel);
+  padding: 16px;
+}
+.lib-panel-head {
+  font-family: var(--sans); font-size: 11.5px; color: var(--paper-dim); margin-bottom: 12px;
+}
+.lib-panel-head b { color: var(--paper); }
+
+.lib-form { display: flex; flex-direction: column; gap: 7px; }
+.lib-form input {
+  background: var(--ink-3); border: 1px solid var(--rule-soft); outline: none;
+  font-family: var(--mono); font-size: 12.5px; color: var(--paper); padding: 10px 11px;
+}
+.lib-form input:focus { border-color: var(--ember-soft); }
+.lib-form input::placeholder { color: var(--paper-faint); }
+.lib-form button {
+  font-family: var(--sans); font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase;
+  background: none; border: 1px solid var(--ember-soft); color: var(--ember);
+  padding: 10px; cursor: pointer; margin-top: 3px;
+}
+.lib-form button:hover { background: var(--ember-wash); }
+
+.lib-panel-err { font-family: var(--sans); font-size: 11.5px; color: var(--ember); margin: 9px 0 0; min-height: 1.1em; }
+.lib-panel-meta {
+  font-family: var(--sans); font-size: 10.5px; line-height: 1.6; color: var(--paper-faint); margin: 10px 0 0;
+}
+.lib-panel-meta b { color: var(--paper-dim); }
+.lib-panel-go {
+  display: block; font-family: var(--sans); font-size: 12px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ember); text-decoration: none;
+  border: 1px solid var(--ember-soft); padding: 10px; text-align: center;
+}
+.lib-panel-go:hover { background: var(--ember-wash); }
+.lib-panel-out {
+  margin-top: 10px; width: 100%; font-family: var(--sans); font-size: 10px; letter-spacing: .14em;
+  text-transform: uppercase; background: none; border: 1px solid var(--rule);
+  color: var(--paper-faint); padding: 8px; cursor: pointer;
+}
+.lib-panel-out:hover { color: var(--ember); border-color: var(--ember-soft); }
+
+@media (max-width: 860px) {
+  .lib-panel { right: 12px; left: 12px; width: auto; top: 58px; }
+}

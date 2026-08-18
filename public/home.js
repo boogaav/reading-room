@@ -284,13 +284,92 @@ function collectSpokenRoom() {
   return out;
 }
 
-// A library is reached by its own name at the root, so the only thing needed
-// here is somewhere to type one.
-$('openLib')?.addEventListener('click', (ev) => {
-  ev.preventDefault();
-  const name = prompt('Library name (yours, or someone else\'s):');
-  if (name && name.trim()) location.href = `/${encodeURIComponent(name.trim().toLowerCase())}`;
-});
+// ---- your library --------------------------------------------------------
+//
+// One control for both cases, because the server has one door: an unclaimed
+// name is claimed by whoever opens it first, and a claimed one needs its code.
+// The panel therefore never has to ask "do you already have one?" — a question
+// nobody should have to answer about their own shelf.
+
+async function wireLibraryButton() {
+  const btn = $('libBtn');
+  const panel = $('libPanel');
+  if (!btn || !panel) return;
+
+  let me = null;
+  try {
+    const out = await (await fetch('/api/library/me')).json();
+    if (out.signedIn) me = out.library;
+  } catch { /* offline: the button still opens the form */ }
+
+  const paint = () => {
+    btn.textContent = me ? me.username : 'Library';
+    btn.classList.toggle('on', !!me);
+    btn.title = me ? `Your library: ${me.username}` : 'Open or create a library';
+  };
+  paint();
+
+  const close = () => { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+
+  btn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (!panel.hidden) return close();
+    panel.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    draw();
+  });
+  document.addEventListener('click', (e) => { if (!panel.hidden && !panel.contains(e.target)) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+
+  function draw() {
+    if (me) {
+      panel.innerHTML =
+        `<div class="lib-panel-head">Signed in as <b>${esc(me.username)}</b></div>` +
+        `<a class="lib-panel-go" href="/${encodeURIComponent(me.username)}">Open your library →</a>` +
+        `<div class="lib-panel-meta">${me.items.length} volume${me.items.length === 1 ? '' : 's'} · `
+        + `press ＋ in any book to keep it</div>` +
+        `<button class="lib-panel-out" id="libOut">Sign out</button>`;
+      $('libOut').onclick = async () => {
+        await fetch('/api/library/close', { method: 'POST' });
+        me = null; paint(); draw();
+      };
+      return;
+    }
+
+    panel.innerHTML =
+      `<div class="lib-panel-head">Your own shelf, on any browser</div>` +
+      `<form class="lib-form" id="libForm">
+         <input id="libName" name="username" autocomplete="username" spellcheck="false"
+                placeholder="a name — yours to pick" aria-label="Library name">
+         <input id="libCode" name="password" type="password" autocomplete="current-password"
+                placeholder="secret code, 8+ characters" aria-label="Secret code">
+         <button type="submit">Open</button>
+       </form>
+       <p class="lib-panel-err" id="libErr"></p>
+       <p class="lib-panel-meta">If the name is free it becomes yours. If it is taken, the code has to
+         match it. No email, and <b>no way to reset the code</b> — don't reuse a password.</p>`;
+
+    $('libForm').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const err = $('libErr');
+      err.textContent = '';
+      const username = $('libName').value.trim().toLowerCase();
+      const code = $('libCode').value;
+      try {
+        const r = await fetch('/api/library/open', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username, code }),
+        });
+        const out = await r.json();
+        if (!r.ok) { err.textContent = out.error || 'That did not work.'; return; }
+        location.href = `/${encodeURIComponent(out.library.username)}`;
+      } catch { err.textContent = 'Could not reach the server.'; }
+    });
+  }
+}
+
+wireLibraryButton();
 
 wireVoice($('voiceBtn'), { collect: collectSpokenRoom, lang: 'en' });
 wireThemeToggle($('themeBtn'));

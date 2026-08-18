@@ -36,12 +36,13 @@
         <button type="submit" id="go">Bind</button>
       </div>
       <p class="paste-hint" id="pasteHint">Any language. A GitHub repo becomes an atlas.</p>
-      <p class="paste-aside">Have a library? <a href="#" id="openLib">Open it by name</a>.</p>
       <div class="results" id="results" hidden></div>
     </form>
 
+    <button class="lib-btn" id="libBtn" aria-haspopup="dialog" aria-expanded="false">Library</button>
     <button class="voice-btn" id="voiceBtn" aria-pressed="false" hidden></button>
     <button class="theme-btn" id="themeBtn" aria-pressed="false"></button>
+    <div class="lib-panel" id="libPanel" role="dialog" aria-label="Your library" hidden></div>
   </header>
 
   <main class="room">
