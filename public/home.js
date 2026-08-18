@@ -7,6 +7,7 @@
 
 import { wireThemeToggle } from '/theme.js';
 import { readHistory } from '/history.js';
+import { volume } from '/shelf.js';
 import { wireVoice } from '/voice.js';
 
 const $ = (id) => document.getElementById(id);
@@ -216,73 +217,6 @@ form.addEventListener('submit', (ev) => {
 // first; books the server has already bound stand after them, dimmed, because
 // they open instantly but you have not read them yet.
 
-const KINDS = new Set(['battle', 'person', 'country', 'place', 'generic']);
-
-/**
- * A book's proportions are its own. Thickness follows word count and height
- * follows chapter count, so the shelf is a physical read on the library: the
- * fat volume is Stalingrad at 15,900 words, the slim one is a stub.
- */
-function proportions(b) {
-  const words = b.words || 0;
-  const chapters = b.chapters || 0;
-  // Unbuilt entries have no measurements, so vary them by name instead of
-  // standing a row of identical blanks.
-  const jitter = [...String(b.title)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 97, 7) / 97;
-
-  const w = words
-    ? Math.round(Math.min(62, Math.max(25, 25 + words / 430)))
-    : Math.round(30 + jitter * 16);
-  const h = chapters
-    ? Math.round(Math.min(288, Math.max(212, 212 + chapters * 2.1)))
-    : Math.round(224 + jitter * 46);
-  return { w, h, fw: Math.round(Math.min(196, Math.max(148, h * 0.66))) };
-}
-
-function volume(b, { unread = false } = {}) {
-  const { w, h, fw } = proportions(b);
-  const kind = KINDS.has(b.archetype) ? b.archetype : 'generic';
-
-  const vol = document.createElement('div');
-  vol.className = `vol${unread ? ' unread' : ''}`;
-  vol.dataset.kind = kind;
-  vol.style.setProperty('--w', `${w}px`);
-  vol.style.setProperty('--h', `${h}px`);
-  vol.style.setProperty('--fw', `${fw}px`);
-
-  const a = document.createElement('a');
-  a.className = 'vol-inner';
-  a.href = b.href;
-  a.setAttribute('aria-label', `${b.title} — open as a book`);
-
-  const art = (b.cover || b.thumb)
-    ? `<div class="vol-front-art"><img src="${esc(b.cover || b.thumb)}" alt="" loading="lazy"></div>`
-    : '';
-  const meta = b.words
-    ? `${new Intl.NumberFormat('en-US').format(b.words)} words · ${b.chapters} chapters`
-    : 'bound and waiting';
-
-  a.innerHTML =
-    `<div class="vol-pages"></div>` +
-    `<div class="vol-front">${art}` +
-      `<div class="vol-front-body">` +
-        `<div class="vol-front-kind">${esc(kind)}${b.lang && b.lang !== 'en' ? ' · ' + esc(b.lang) : ''}</div>` +
-        `<div class="vol-front-title">${esc(b.title)}</div>` +
-        (b.subtitle || b.description
-          ? `<div class="vol-front-sub">${esc(b.subtitle || b.description)}</div>` : '') +
-        `<div class="vol-front-meta">${esc(meta)}</div>` +
-      `</div>` +
-    `</div>` +
-    `<div class="vol-spine">` +
-      `<span class="vol-mark"></span>` +
-      `<span class="vol-title">${esc(b.title)}</span>` +
-      `<span class="vol-lang">${esc(b.lang || 'en')}</span>` +
-    `</div>`;
-
-  vol.appendChild(a);
-  return vol;
-}
-
 (async function shelves() {
   const wall = $('shelves');
   const mine = readHistory();
@@ -349,6 +283,14 @@ function collectSpokenRoom() {
   }
   return out;
 }
+
+// A library is reached by its own name at the root, so the only thing needed
+// here is somewhere to type one.
+$('openLib')?.addEventListener('click', (ev) => {
+  ev.preventDefault();
+  const name = prompt('Library name (yours, or someone else\'s):');
+  if (name && name.trim()) location.href = `/${encodeURIComponent(name.trim().toLowerCase())}`;
+});
 
 wireVoice($('voiceBtn'), { collect: collectSpokenRoom, lang: 'en' });
 wireThemeToggle($('themeBtn'));

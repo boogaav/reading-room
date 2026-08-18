@@ -1,6 +1,7 @@
 import { wireThemeToggle, currentTheme } from '/theme.js';
 import { remember } from '/history.js';
 import { wireVoice, setVoiceLang, stop as stopVoice } from '/voice.js';
+import { wireKeep } from '/keep.js';
 
 // Reading Room — client renderer.
 //
@@ -179,6 +180,15 @@ function paint() {
     wireWarming();
     wireThemeToggle(document.getElementById('themeBtn'));
     wireVoice(document.getElementById('voiceBtn'), { collect: collectSpokenBook, lang: state.lang });
+    wireKeep(document.getElementById('keepBtn'), () => {
+      const b = state.book;
+      const cover = b.blocks?.find((x) => x.type === 'cover');
+      return {
+        kind: 'book', lang: b.lang || 'en', title: b.title, href: location.pathname,
+        archetype: b.archetype, words: b.stats?.words, chapters: b.stats?.chapters,
+        subtitle: cover?.subtitle || b.subject?.description || '', cover: cover?.image || null,
+      };
+    });
     document.getElementById('railToggle').onclick =
       () => document.getElementById('rail').classList.toggle('open');
     state.wired = true;

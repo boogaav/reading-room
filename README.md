@@ -126,6 +126,41 @@ The number histogram is labelled *number space*, not time. Proposal numbers are
 handed out roughly in order so it reads as a rough timeline, and rough is the
 operative word.
 
+## Libraries
+
+The shelf on the home page lives in `localStorage`, which makes it a property of
+a browser rather than of a person. A library is the same shelf with a name on
+the door: visit `/<name>`, pick a secret code, and it is yours from any browser.
+Press **＋** in the header of any book or atlas to keep it there.
+
+The code is a password by another name, so it is treated as one — scrypt-hashed
+with a per-library salt, compared in constant time, never stored or logged in
+the clear, and rate-limited to eight attempts per name and origin per ten
+minutes. Sessions are HMAC-signed cookies, `HttpOnly` and `SameSite=Lax`.
+
+It is deliberately **not** presented as an account system. There is no email and
+no recovery, and the claim page says exactly that before you choose a code.
+A private library answers identically to one that does not exist, so visiting a
+name cannot be used to discover whether it is taken.
+
+### Persistence needs a decision
+
+Libraries are the only state here that cannot be regenerated from upstream, so
+they live in `DATA_DIR` (default `./data`) rather than `.cache`. On Fly that
+needs a volume — and because Fly volumes attach to one machine and do not
+replicate, **two machines would mean two different sets of libraries**. Running
+one machine is the simple correct answer:
+
+```bash
+fly volumes create reading_room_data --size 1 --region sin --app wikibook-reading-room
+fly scale count 1 --app wikibook-reading-room
+fly deploy
+```
+
+`fly.toml` already carries the mount and `DATA_DIR=/data`. Without the volume the
+feature still works, but every deploy wipes the libraries — which is why this is
+not deployed by default.
+
 ## The v0 question
 
 The proposal was: build the deterministic layer first, and only then decide whether an

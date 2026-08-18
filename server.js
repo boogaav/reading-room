@@ -9,6 +9,10 @@ import { parseWikiInput, looksLikeLangCode, isSupported, languageName } from './
 import { buildAtlas } from './src/github/atlas.js';
 import { parseRepoInput } from './src/github/fetch.js';
 import { buildEipAtlas } from './src/eips/catalogue.js';
+import {
+  openLibrary, readLibrary, publicView, addItem, removeItem, setDetails, listPublic,
+  mintSession, readSession, normaliseUsername, isReserved, tooManyAttempts, noteAttempt,
+} from './src/library/store.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PUBLIC = join(ROOT, 'public');
@@ -236,6 +240,75 @@ const server = createServer(async (req, res) => {
       });
     }
 
+    // ---- libraries -------------------------------------------------------
+
+    if (path === '/api/library/open' && req.method === 'POST') {
+      const { username, code } = await readBody(req);
+      // Throttle per name and origin together: one guesser cannot lock out a
+      // whole name for everyone, and one address cannot sweep many names.
+      const throttleKey = `${String(username || '').toLowerCase()}|${req.socket.remoteAddress}`;
+      if (tooManyAttempts(throttleKey)) {
+        return json(res, 429, { error: 'Too many attempts. Wait a few minutes and try again.' });
+      }
+      let result;
+      try {
+        result = await openLibrary(username, code);
+      } catch (e) {
+        // Almost always an unwritable data directory — say so plainly instead
+        // of returning a bare 500 that looks like a bug in the code.
+        console.error('[library] cannot write:', e.message);
+        return json(res, 503, { error: 'Libraries are not writable on this server yet.' });
+      }
+      noteAttempt(throttleKey, result.ok);
+      if (!result.ok) return json(res, result.reason === 'auth' ? 401 : 400, { error: result.message });
+
+      setSession(res, req, await mintSession(result.library.username));
+      console.log(`[library] ${result.created ? 'claimed' : 'opened'} ${result.library.username}`);
+      return json(res, 200, { ok: true, created: result.created, library: result.library });
+    }
+
+    if (path === '/api/library/close' && req.method === 'POST') {
+      clearSession(res, req);
+      return json(res, 200, { ok: true });
+    }
+
+    if (path === '/api/library/me') {
+      const me = await whoami(req);
+      if (!me) return json(res, 200, { signedIn: false });
+      return json(res, 200, { signedIn: true, library: publicView(await readLibrary(me)) });
+    }
+
+    if (path === '/api/libraries') return json(res, 200, { libraries: await listPublic() });
+
+    if (path.startsWith('/api/library/')) {
+      const rest = path.slice('/api/library/'.length).split('/');
+      const name = normaliseUsername(rest[0]);
+      if (!name) return json(res, 400, { error: 'Not a valid library name.' });
+
+      const lib = await readLibrary(name);
+      const me = await whoami(req);
+      const mine = me === name;
+
+      if (!lib) return json(res, 404, { error: `No library called ${name}.` });
+      // A private library is invisible to everyone but its owner, and says the
+      // same thing as one that does not exist.
+      if (lib.visibility === 'private' && !mine) return json(res, 404, { error: `No library called ${name}.` });
+
+      if (rest[1] === 'items') {
+        if (!mine) return json(res, 403, { error: 'Only the owner can change this library.' });
+        if (req.method === 'POST') return json(res, 200, { ok: true, library: await addItem(name, await readBody(req)) });
+        if (req.method === 'DELETE') {
+          const href = url.searchParams.get('href');
+          return json(res, 200, { ok: true, library: await removeItem(name, href) });
+        }
+      }
+      if (!rest[1] && req.method === 'PATCH') {
+        if (!mine) return json(res, 403, { error: 'Only the owner can change this library.' });
+        return json(res, 200, { ok: true, library: await setDetails(name, await readBody(req)) });
+      }
+      return json(res, 200, { library: publicView(lib), mine });
+    }
+
     if (path === '/api/engine') {
       return json(res, 200, {
         gate: gateStats(),
@@ -272,6 +345,13 @@ const server = createServer(async (req, res) => {
 
     if (path.startsWith('/read/')) return sendFile(res, join(PUBLIC, 'index.html'));
     if (path === '/read' || path === '/read/') return redirect(res, '/');
+
+    // A library lives at the root, so this comes after every other route and
+    // only claims paths that look like a name — anything with a dot is a file.
+    const maybeName = path.slice(1);
+    if (!maybeName.includes('/') && !maybeName.includes('.') && normaliseUsername(maybeName)) {
+      return sendFile(res, join(PUBLIC, 'library.html'));
+    }
 
     return sendFile(res, join(PUBLIC, path === '/' ? 'index.html' : path));
   } catch (err) {
@@ -324,6 +404,54 @@ async function streamBook(res, title, force, lang = 'en') {
 async function shelf() {
   const entries = await catalogueEntries(24);
   return entries.map((b) => ({ ...b, href: readPath(b.lang, b.title) }));
+}
+
+// ---- libraries -----------------------------------------------------------
+
+const COOKIE = 'rr_session';
+
+function cookies(req) {
+  const out = {};
+  for (const part of String(req.headers.cookie || '').split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+
+/** Behind Fly's proxy the socket is plain HTTP, so trust the forwarded scheme. */
+const isSecure = (req) =>
+  (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
+
+function setSession(res, req, token) {
+  const bits = [`${COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${60 * 60 * 24 * 30}`];
+  if (isSecure(req)) bits.push('Secure');
+  res.setHeader('Set-Cookie', bits.join('; '));
+}
+
+function clearSession(res, req) {
+  const bits = [`${COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+  if (isSecure(req)) bits.push('Secure');
+  res.setHeader('Set-Cookie', bits.join('; '));
+}
+
+const whoami = (req) => readSession(cookies(req)[COOKIE]);
+
+function readBody(req, limit = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) { reject(new Error('body too large')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); }
+      catch { reject(new Error('invalid JSON')); }
+    });
+    req.on('error', reject);
+  });
 }
 
 function json(res, status, body) {

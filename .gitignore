@@ -4,3 +4,6 @@ node_modules/
 .cache/
 *.log
 .DS_Store
+
+# User libraries. Never a build artefact, never committed.
+data/

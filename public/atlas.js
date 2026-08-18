@@ -6,6 +6,7 @@
 
 import { wireThemeToggle } from '/theme.js';
 import { wireVoice } from '/voice.js';
+import { wireKeep } from '/keep.js';
 
 const el = (tag, cls, html) => {
   const n = document.createElement(tag);
@@ -65,6 +66,11 @@ function render() {
   wireSpine();
   wireThemeToggle(document.getElementById('themeBtn'));
   wireVoice(document.getElementById('voiceBtn'), { collect: collectSpoken, lang: 'en' });
+  wireKeep(document.getElementById('keepBtn'), () => ({
+    kind: 'atlas', lang: 'en', title: a.title, href: location.pathname,
+    archetype: a.kind, subtitle: a.description || '',
+    words: 0, chapters: a.stats?.count || 0,
+  }));
   document.getElementById('railToggle').onclick =
     () => document.getElementById('rail').classList.toggle('open');
 }

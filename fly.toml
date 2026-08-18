@@ -3,6 +3,15 @@ primary_region = "sin"
 
 [build]
 
+[env]
+  # Libraries are the only state that cannot be regenerated from upstream, so
+  # they live on a mounted volume rather than in the ephemeral image.
+  DATA_DIR = "/data"
+
+[[mounts]]
+  source = "reading_room_data"
+  destination = "/data"
+
 [http_service]
   internal_port = 8208
   force_https = true
