@@ -83,6 +83,20 @@ shelf renderer was duplicated once and drifted — do not duplicate it again.
 - Verify rendered DOM, not just HTTP 200 — `/read/x` returns 200 even when the
   client fails.
 
+## Start here
+
+`STATE.md` is generated from measured facts — HEAD, dirty files, cache versions,
+seed freshness, and what production is actually serving. It is gitignored, so if
+it is missing:
+
+```bash
+node scripts/handoff.mjs --probe
+```
+
+It rewrites itself automatically before every compaction and at session end
+(`.claude/settings.json`). Prefer it over the summary below, which is a snapshot
+written by hand and can age.
+
 ## State as of the last session
 
 **On prod:** books (4 archetypes, 7 languages), both atlases, home bookshelf,

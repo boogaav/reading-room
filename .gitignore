@@ -7,3 +7,6 @@ node_modules/
 
 # User libraries. Never a build artefact, never committed.
 data/
+
+# Generated handoff — regenerates in ~2s, so it is never committed and never stale.
+STATE.md
