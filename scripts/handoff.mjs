@@ -12,7 +12,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 
 const sh = (cmd) => { try { return execSync(cmd, { encoding: 'utf8' }).trim(); } catch { return ''; } };
-const PROD = 'https://readingroom.booga.me';
+const PROD = 'https://readingroom.civ.fm';
 
 function versions() {
   const grab = (file, name) => {

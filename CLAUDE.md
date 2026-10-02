@@ -4,7 +4,7 @@ Turns Wikipedia articles into interactive books, and structured web sources into
 interactive atlases. `README.md` explains *what* it does and why each design
 choice was made — read it first. This file is about *how to work on it*.
 
-Live: https://readingroom.booga.me · Repo: `boogaav/reading-room` (private)
+Live: https://readingroom.civ.fm (also readingroom.booga.me) · Repo: `boogaav/reading-room` (private)
 
 ## The one rule
 
@@ -123,4 +123,4 @@ export FLY_ACCESS_TOKEN=$(grep -m1 access_token ~/.fly/config.yml | sed 's/.*acc
 fly deploy --now --yes          # takes 6–10 min; app wikibook-reading-room
 ```
 
-Then verify against `https://readingroom.booga.me`, not the `.fly.dev` host.
+Then verify against `https://readingroom.civ.fm`, not the `.fly.dev` host.
