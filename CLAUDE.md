@@ -101,22 +101,16 @@ written by hand and can age.
 
 ## State as of the last session
 
-**On prod:** books (4 archetypes, 7 languages), both atlases, home bookshelf,
-themes, voice reading, language switcher.
+**On prod (readingroom.civ.fm, also readingroom.booga.me):** books (4
+archetypes, 7 languages), both atlases, home bookshelf, themes, voice reading,
+language switcher, libraries.
 
-**Built, tested, pushed, NOT deployed:** libraries (`/<name>` + secret code).
-Deploying currently *fails* — `fly.toml` declares a volume mount that does not
-exist yet. Two open decisions, both the user's:
+Libraries persist on Fly volume `reading_room_data` (1 GB, sin), so the app
+runs **one machine** — volumes attach to one machine and do not replicate. Do
+not scale past 1 without moving libraries to a shared store first.
 
-1. `fly volumes create reading_room_data --size 1 --region sin` and
-   `fly scale count 1` (Fly volumes attach to one machine and do not replicate,
-   so two machines would split libraries in two) — **or** swap the volume for a
-   shared store (Fly Postgres/Redis) to keep two machines.
-2. `fly secrets set GITHUB_TOKEN=…` so arbitrary repos build in production
-   rather than only the seeded one.
-
-Do not run either without the user saying so: both provision paid resources or
-reduce redundancy.
+**Open, the user's call:** `fly secrets set GITHUB_TOKEN=…` so arbitrary repos
+build in production rather than only the seeded one. Do not mint a token.
 
 ## Deploying
 
