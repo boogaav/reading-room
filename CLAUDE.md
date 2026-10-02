@@ -63,7 +63,9 @@ shelf renderer was duplicated once and drifted — do not duplicate it again.
 - `.cache/` is rebuildable and gitignored. `data/` is user libraries — never
   committed, never a build artefact.
 - `seed/` ships pre-built books and atlases inside the Docker image so a cold
-  machine serves instantly. Regenerate after a version bump or the seeds go stale.
+  machine serves instantly. A seed is keyed on the article's *revision*, and seeded
+  articles are edited weekly — run `node scripts/refresh-seeds.mjs` before every
+  deploy, or every showcase book rebuilds live (up to 60s) on a cold machine.
 - Node built-ins + `cheerio` only. Do not add dependencies without asking.
 
 ## Gotchas already paid for

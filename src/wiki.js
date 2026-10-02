@@ -139,9 +139,14 @@ export const wp = (lang = 'en') => `https://${lang}.wikipedia.org`;
 export const siteOf = (lang = 'en') => `${String(lang).replace(/-/g, '_')}wiki`;
 
 /** Parsoid HTML — semantic sections, typed links, structured refs. */
+// The article body decides the revision, and so the book's cache key. Thirty
+// days is fine for serving; a seed refresh sets it to 0 or it would re-seed the
+// revision it already had.
+const ARTICLE_TTL_MS = process.env.ARTICLE_TTL_MS != null ? Number(process.env.ARTICLE_TTL_MS) : undefined;
+
 export async function fetchArticleHtml(title, lang = 'en') {
   const url = `${wp(lang)}/api/rest_v1/page/html/${encodeURIComponent(title)}`;
-  const { body, headers, cached } = await fetchCached(url);
+  const { body, headers, cached } = await fetchCached(url, { ttlMs: ARTICLE_TTL_MS });
   // etag looks like: W/"1368051906/71d2bab4-.../view/html" — the leading number is the revid.
   const m = /"(\d+)\//.exec(headers.etag || '');
   return { html: body, revid: m ? Number(m[1]) : null, lastModified: headers['last-modified'], cached };

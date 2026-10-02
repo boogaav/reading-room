@@ -337,10 +337,15 @@ async function readIndex() {
 }
 
 /**
- * Rebuilds the catalogue by reading the books themselves. Only ever runs when
- * the index is missing, which is the normal state of a fresh deploy: the image
- * ships pre-built books but `.cache` is not a build artefact, so without this
- * the shelf would stand empty until somebody happened to open something.
+ * Reads the catalogue entries back out of the books themselves. A fresh deploy
+ * ships pre-built books in `.cache` but no index, so without this the shelf
+ * would only ever show what somebody happened to open on this machine.
+ *
+ * "Index missing" is the wrong trigger: the first visitor of a cold machine
+ * often opens a book before the home page, which writes one line, and every
+ * seeded book then stays invisible for the life of the machine. So it runs once
+ * per process instead, and only *appends* what the index lacks — appends are
+ * the one write that cannot clobber a concurrent writer.
  */
 async function healIndex() {
   let files = [];
@@ -371,15 +376,25 @@ async function healIndex() {
       });
     } catch { /* a partial write — skip it */ }
   }
-  if (entries.length) {
-    writeFile(INDEX, entries.map((e) => JSON.stringify(e)).join('\n') + '\n').catch(() => {});
-  }
   return entries;
+}
+
+let healed = null;
+
+async function healOnce() {
+  const [known, onDisk] = await Promise.all([readIndex(), healIndex()]);
+  const have = new Set(known.map((e) => `${e.lang}:${e.title}`));
+  const missing = onDisk.filter((e) => !have.has(`${e.lang}:${e.title}`));
+  if (missing.length) {
+    try { await appendFile(INDEX, missing.map((e) => JSON.stringify(e)).join('\n') + '\n'); }
+    catch { /* the catalogue is a convenience */ }
+  }
 }
 
 /** Everything bound, newest first. */
 export async function catalogueEntries(limit = 24) {
-  let all = await readIndex();
-  if (!all.length) all = await healIndex();
+  healed ??= healOnce();
+  await healed;
+  const all = await readIndex();
   return all.sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, limit);
 }
